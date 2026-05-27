@@ -5,27 +5,30 @@ A tiny TUI menu on top of tmux. Run `tu`, see your sessions, pick one. That's it
 ## What it does
 
 - Run `tu` → a small menu opens showing every tmux session
+- **↑ / ↓** (or **j / k**) navigate the list — even while a button is focused
 - **Enter** or click a row → attach to that session
 - **n** or click **New** → create a new session (auto-named `tu-1`, `tu-2`, …) and attach
-- **d** or click **Detach** → detach the current client (only enabled when you ran `tu` inside tmux)
+- **a** or click **Attach** → attach to whichever session is highlighted
+- **d** or click **Detach & Quit** → detach the current client and close `tu`
+  (only enabled when you ran `tu` inside tmux)
 - **q** or click **Quit** → close the menu
 
 No preview, no command palette, no F12 binding. Mouse fully supported.
 
 ```
-+--------------------------------------+
-|  tu                       in tmux    |
-+--------------------------------------+
-|  Session   Windows   Attached        |
-|--------------------------------------|
-| > work        3        yes           |
-|   play        1                      |
-|   scratch     2                      |
-|                                      |
-+--------------------------------------+
-|     [ New (n) ]  [ Detach (d) ]      |
-|          [ Quit (q) ]                |
-+--------------------------------------+
++--------------------------------------------------+
+|  tu                                in tmux       |
++--------------------------------------------------+
+|  Session   Windows   Attached                    |
+|--------------------------------------------------|
+| > work        3        yes                       |
+|   play        1                                  |
+|   scratch     2                                  |
+|                                                  |
++--------------------------------------------------+
+| [ New (n) ] [ Attach (a) ] [ Detach & Quit (d) ] |
+|                  [ Quit (q) ]                    |
++--------------------------------------------------+
 ```
 
 ## Install
@@ -50,7 +53,7 @@ uv run tu
 | Outside tmux | Textual suspends, `tmux attach -t <name>` takes over the terminal, and when you detach (`prefix d`) the `tu` menu reappears. |
 | Inside tmux  | `tmux switch-client -t <name>` moves your client to the picked session and `tu` exits. |
 
-The **Detach** button is disabled when `$TMUX` is not set.
+The **Detach & Quit** button is disabled when `$TMUX` is not set.
 
 ## Mouse mode
 

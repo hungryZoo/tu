@@ -1,7 +1,8 @@
 """The minimal ``tu`` TUI.
 
-One screen: a session list and three buttons (New / Detach / Quit). Click or
-press the underlined key. Detach is only enabled when running inside tmux.
+One screen: a session list and four buttons (New / Attach / Detach & Quit /
+Quit). Click or press the underlined key. Arrow keys and Enter always work,
+no matter which widget has focus.
 """
 
 from __future__ import annotations
@@ -36,12 +37,19 @@ class TmuxUIApp(App[None]):
 
     # Enter is intentionally not bound at the app level: the focused widget
     # (DataTable row or a Button) handles it through its own default action.
+    # Arrow keys (and j/k) are bound at the app level so the list stays
+    # navigable even when a button currently holds focus.
     BINDINGS = [
         Binding("q", "quit", "Quit", show=True),
         Binding("ctrl+c", "quit", "Quit", show=False),
         Binding("n", "new_session", "New", show=True),
-        Binding("d", "detach", "Detach", show=True),
+        Binding("a", "attach", "Attach", show=True),
+        Binding("d", "detach", "Detach & Quit", show=True),
         Binding("r", "refresh_now", "Refresh", show=False),
+        Binding("up", "move_cursor(-1)", "Up", show=False),
+        Binding("k", "move_cursor(-1)", "Up", show=False),
+        Binding("down", "move_cursor(1)", "Down", show=False),
+        Binding("j", "move_cursor(1)", "Down", show=False),
     ]
 
     def __init__(self, tmux: TmuxClient | None = None) -> None:
@@ -58,8 +66,9 @@ class TmuxUIApp(App[None]):
             yield DataTable(id="sessions", cursor_type="row", zebra_stripes=False)
             with Horizontal(id="buttons"):
                 yield Button("New (n)", id="btn-new", variant="success")
+                yield Button("Attach (a)", id="btn-attach", variant="primary")
                 yield Button(
-                    "Detach (d)",
+                    "Detach & Quit (d)",
                     id="btn-detach",
                     variant="warning",
                     disabled=not self._inside_tmux,
@@ -116,6 +125,29 @@ class TmuxUIApp(App[None]):
 
     # ----------------------------------------------------------- actions
 
+    def action_attach(self) -> None:
+        name = self._selected_name()
+        if name is None:
+            self.bell()
+            return
+        self._attach(name)
+
+    def action_move_cursor(self, delta: int) -> None:
+        """Move the session-list cursor by *delta*, focusing the table.
+
+        Bound to up/down (and j/k) at the app level so the user can keep
+        navigating the list while a button has focus.
+        """
+
+        table = self.query_one(DataTable)
+        if table.row_count == 0:
+            return
+        if not table.has_focus:
+            table.focus()
+        new_row = max(0, min(table.row_count - 1, table.cursor_row + delta))
+        if new_row != table.cursor_row:
+            table.move_cursor(row=new_row)
+
     def action_new_session(self) -> None:
         name = self.tmux.next_default_name()
         result = self.tmux.new_session(name)
@@ -171,6 +203,10 @@ class TmuxUIApp(App[None]):
     @on(Button.Pressed, "#btn-new")
     def _click_new(self) -> None:
         self.action_new_session()
+
+    @on(Button.Pressed, "#btn-attach")
+    def _click_attach(self) -> None:
+        self.action_attach()
 
     @on(Button.Pressed, "#btn-detach")
     def _click_detach(self) -> None:
