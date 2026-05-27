@@ -425,7 +425,7 @@ def test_detach_failure_surfaces_tmux_stderr(
             await pilot.press("d")
             await pilot.pause()
 
-            assert any("Detach 실패" in n for n in notifications), notifications
+            assert any("Detach failed" in n for n in notifications), notifications
             assert any("no current client" in n for n in notifications), notifications
             assert app._exit is False
 
@@ -454,7 +454,7 @@ def test_detach_outside_tmux_shows_warning(
             # still fires action_detach.
             await pilot.press("d")
             await pilot.pause()
-            assert any("tmux 안에서" in n for n in notifications), notifications
+            assert any("inside tmux" in n.lower() for n in notifications), notifications
             assert app._exit is False
 
     _run(go())
@@ -602,8 +602,63 @@ def test_delete_modal_failure_shows_toast(silence_mouse_prompt) -> None:
             await pilot.click("#cd-delete")
             await pilot.pause()
 
-            assert any("세션 삭제 실패" in n for n in notifications), notifications
+            assert any("Failed to delete session" in n for n in notifications), notifications
             assert any("can't find session" in n for n in notifications), notifications
+
+    _run(go())
+
+
+# ----------------------------------------------------- status line
+
+
+def test_status_line_lists_every_action_including_delete(
+    monkeypatch: pytest.MonkeyPatch, silence_mouse_prompt
+) -> None:
+    """Bottom status bar shows New/Attach/Delete/Detach/Quit. Delete
+    appears with a 'click' marker (since it has no key binding) — the
+    user must still see it as an available action."""
+
+    monkeypatch.setenv("TMUX", "/tmp/tmux-fake")
+
+    async def go():
+        from tmuxui.app import StatusLine
+
+        app = TmuxUIApp(tmux=FakeTmux())
+        async with app.run_test(size=(120, 30)) as pilot:
+            await pilot.pause()
+            status = app.query_one(StatusLine)
+            rendered = status.render().plain
+            assert "New" in rendered
+            assert "Attach" in rendered
+            assert "Delete" in rendered
+            assert "Detach" in rendered
+            assert "Quit" in rendered
+            # Delete must NOT carry a keyboard hint — it's click-only.
+            assert "click" in rendered
+            for letter in ("n", "a", "d", "q"):
+                assert f" {letter} " in rendered, rendered
+
+    _run(go())
+
+
+def test_status_line_hides_detach_when_outside_tmux(
+    monkeypatch: pytest.MonkeyPatch, silence_mouse_prompt
+) -> None:
+    """Outside tmux, Detach is disabled — the status bar should drop it
+    so the user isn't told about an action they can't take."""
+
+    monkeypatch.delenv("TMUX", raising=False)
+
+    async def go():
+        from tmuxui.app import StatusLine
+
+        app = TmuxUIApp(tmux=FakeTmux())
+        async with app.run_test(size=(120, 30)) as pilot:
+            await pilot.pause()
+            rendered = app.query_one(StatusLine).render().plain
+            assert "Detach" not in rendered
+            # Delete is *always* present — it doesn't depend on $TMUX.
+            assert "Delete" in rendered
 
     _run(go())
 

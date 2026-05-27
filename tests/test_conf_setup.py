@@ -210,5 +210,5 @@ def test_apply_directives_to_server_is_a_noop_for_empty_input(
 
 
 def test_directive_line_renders_canonical_form() -> None:
-    d = Directive(option="status", value="on", label="상태바")
+    d = Directive(option="status", value="on", label="status line")
     assert d.line == "set -g status on"

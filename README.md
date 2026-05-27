@@ -95,13 +95,16 @@ tmux error in a toast so you can see what went wrong.
 
 Sessions can be deleted from the menu — but Delete is deliberately
 mouse-only: there is no keyboard shortcut for it so a stray keystroke
-can never nuke a session.
+can never nuke a session. The bottom status bar still lists it (tagged
+`click`) so you always know it's available.
 
 1. Click the **Delete** button on the highlighted row.
-2. A confirmation modal opens: *"정말 '<name>' 세션을 삭제하시겠습니까?"*
-   The initial focus is on **Back**, so an accidental Enter cancels.
-3. Click **Delete** (or **Back** / press Escape to cancel). On confirm,
-   `tu` runs `tmux kill-session -t <name>` and refreshes the list.
+2. A confirmation modal opens: *"Really delete session '<name>'? This
+   cannot be undone."* The initial focus is on **Back**, so an
+   accidental Enter cancels.
+3. Click **Delete** (or **Back** / press Escape to cancel). On
+   confirm, `tu` runs `tmux kill-session -t <name>` and refreshes the
+   list.
 
 If you ran `tu` from inside the very session you are deleting, tmux
 also tears down that pane — you'll land at the parent shell.
@@ -117,12 +120,12 @@ Every time `tu` launches, it checks `~/.tmux.conf` for two directives:
 
 If either is missing, a small modal asks whether to add it:
 
-> `~/.tmux.conf` 에 다음 항목을 추가할까요?
+> Add the following to `~/.tmux.conf`?
 >
-> &nbsp;&nbsp;**set -g mouse on**   (마우스 모드)
-> &nbsp;&nbsp;**set -g history-limit 10000000**   (스크롤백 라인 수)
+> &nbsp;&nbsp;**set -g mouse on**   (mouse support)
+> &nbsp;&nbsp;**set -g history-limit 10000000**   (scrollback size)
 
-Pick **예, 추가** and `tu` will:
+Pick **Yes, add** and `tu` will:
 
 1. Append the missing directives to the **end** of `~/.tmux.conf`
    (creating the file if absent) under a `# Added by tu` header
@@ -131,7 +134,7 @@ Pick **예, 추가** and `tu` will:
 2. Apply them to the running tmux server immediately via
    `tmux set-option -g <opt> <value>`.
 
-Pick **다음에** to skip just this run — `tu` re-checks every launch
+Pick **Later** to skip just this run — `tu` re-checks every launch
 until both directives are present (or you've explicitly disabled them in
 your conf, in which case your preference is respected and the modal
 stays away).

@@ -1,8 +1,8 @@
 """The minimal ``tu`` TUI.
 
-One screen: a session list and four buttons (New / Attach / Detach / Quit).
-Click or press the underlined key. Arrow keys and Enter always work, no
-matter which widget has focus.
+One screen: a session list and five buttons (New / Attach / Delete /
+Detach / Quit). Click or press the underlined key. Arrow keys and Enter
+always work, no matter which widget has focus.
 
 Every action ultimately *closes* `tu`; what differs is what they do to tmux
 first:
@@ -11,16 +11,17 @@ first:
                      session (or, when run inside tmux, ``switch-client`` to
                      it and let the host shell take over).
 * **New**          — create a session named ``tu-N`` and attach to it.
+* **Delete**       — click-only. Opens a confirmation modal; on confirm,
+                     ``tmux kill-session -t <name>``.
 * **Detach**       — only enabled inside tmux. Detach the current client so
                      the user lands at their parent shell, then close `tu`.
 * **Quit**         — close `tu`. No tmux side-effects.
 
 For the "outside tmux" attach/new paths we don't run ``tmux attach-session``
-ourselves while Textual is still running — we set
-``post_exit_argv`` and let ``__main__.py`` ``execvp()`` into it after the
-TUI has fully torn down. This avoids the alt-screen flicker you would get
-from suspend/resume and matches the user-visible behaviour they asked for
-("들어가면서 현재쉘의 tu창은 꺼짐").
+ourselves while Textual is still running — we set ``post_exit_argv`` and
+let ``__main__.py`` ``execvp()`` into it after the TUI has fully torn down.
+This avoids the alt-screen flicker you would get from suspend/resume and
+matches the user-visible behaviour (attaching closes `tu` cleanly).
 """
 
 from __future__ import annotations
@@ -29,12 +30,13 @@ import os
 import subprocess
 from pathlib import Path
 
+from rich.text import Text
 from textual import on
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
-from textual.widgets import Button, DataTable, Footer, Header, Static
+from textual.widgets import Button, DataTable, Header, Static
 
 from .conf_setup import (
     CONF_PATH,
@@ -48,6 +50,48 @@ from .models import Session
 from .tmux import TmuxClient, attach_argv, is_inside_tmux
 
 POLL_INTERVAL = 2.0  # seconds
+
+
+class StatusLine(Static):
+    """Bottom status bar — keyboard hints *plus* click-only entries.
+
+    Textual's built-in ``Footer`` only renders entries that have a real
+    ``Binding`` behind them. That's a problem for actions like Delete
+    that we deliberately do not bind to a keystroke. ``StatusLine``
+    accepts a free-form list of ``(key, description)`` tuples; when
+    ``key`` is ``None`` we render a "click" tag in place of a keystroke,
+    so the user still sees the action listed.
+    """
+
+    DEFAULT_CSS = """
+    StatusLine {
+        dock: bottom;
+        height: 1;
+        background: $panel;
+        color: $text;
+    }
+    """
+
+    # Rendered with reverse-video to mimic Textual's Footer's keystroke
+    # affordance; the click marker uses the same shape so the row still
+    # reads as a grid of "action chips".
+    _CLICK_TAG = "click"
+
+    def __init__(self, entries: list[tuple[str | None, str]]) -> None:
+        super().__init__()
+        self._entries = entries
+
+    def render(self) -> Text:
+        text = Text(no_wrap=True, overflow="ellipsis")
+        for index, (key, description) in enumerate(self._entries):
+            if index:
+                text.append("   ")
+            if key is None:
+                text.append(f" {self._CLICK_TAG} ", style="dim reverse")
+            else:
+                text.append(f" {key} ", style="reverse")
+            text.append(f" {description} ")
+        return text
 
 
 class ConfirmDeleteModal(ModalScreen[bool]):
@@ -99,8 +143,8 @@ class ConfirmDeleteModal(ModalScreen[bool]):
     def compose(self) -> ComposeResult:
         with Vertical(id="confirm-delete"):
             yield Static(
-                f"정말 [b]'{self._session_name}'[/b] 세션을 삭제하시겠습니까?\n"
-                "이 작업은 되돌릴 수 없습니다.",
+                f"Really delete session [b]'{self._session_name}'[/b]?\n"
+                "This cannot be undone.",
                 classes="msg",
             )
             with Horizontal():
@@ -181,7 +225,23 @@ class TmuxUIApp(App[None]):
                     disabled=not self._inside_tmux,
                 )
                 yield Button("Quit (q)", id="btn-quit", variant="error")
-        yield Footer()
+        yield self._build_status_line()
+
+    def _build_status_line(self) -> StatusLine:
+        """Render the bottom status bar — keys plus a click-only Delete."""
+
+        entries: list[tuple[str | None, str]] = [
+            ("n", "New"),
+            ("a", "Attach"),
+            # Delete intentionally has no keyboard binding (a stray
+            # keystroke must never destroy a session). We still surface
+            # it in the status bar so users know it exists.
+            (None, "Delete"),
+        ]
+        if self._inside_tmux:
+            entries.append(("d", "Detach"))
+        entries.append(("q", "Quit"))
+        return StatusLine(entries)
 
     def on_mount(self) -> None:
         self.title = "tu"
@@ -280,7 +340,7 @@ class TmuxUIApp(App[None]):
         result = self.tmux.new_session(name)
         if not result.ok:
             self.notify(
-                f"새 세션 생성 실패: {result.stderr.strip() or 'unknown error'}",
+                f"Failed to create session: {result.stderr.strip() or 'unknown error'}",
                 severity="error",
                 timeout=6,
             )
@@ -300,7 +360,7 @@ class TmuxUIApp(App[None]):
 
         if not self._inside_tmux:
             self.notify(
-                "Detach는 tmux 안에서 tu를 실행했을 때만 동작해요.",
+                "Detach only works when `tu` is launched inside tmux.",
                 severity="warning",
                 timeout=4,
             )
@@ -327,7 +387,7 @@ class TmuxUIApp(App[None]):
             return
 
         self.notify(
-            f"Detach 실패: {detail}",
+            f"Detach failed: {detail}",
             severity="error",
             timeout=8,
         )
@@ -388,7 +448,7 @@ class TmuxUIApp(App[None]):
             append_directives(missing)
         except OSError as exc:
             self.notify(
-                f"~/.tmux.conf 수정 실패: {exc}",
+                f"Failed to update ~/.tmux.conf: {exc}",
                 severity="error",
                 timeout=6,
             )
@@ -396,11 +456,11 @@ class TmuxUIApp(App[None]):
 
         applied = apply_directives_to_server(missing, self.tmux)
         labels = ", ".join(d.line for d in missing)
-        msg = f"{CONF_PATH} 끝에 추가: {labels}"
+        msg = f"Appended to {CONF_PATH}: {labels}"
         if applied:
-            msg += " · 현재 tmux 서버에도 적용됨"
+            msg += " · live tmux server updated"
         else:
-            msg += " · 다음 tmux 시작부터 적용"
+            msg += " · will apply on the next tmux start"
         self.notify(msg, severity="information", timeout=8)
 
     # ---------------------------------------------------------- delete
@@ -414,13 +474,13 @@ class TmuxUIApp(App[None]):
             result = self.tmux.kill_session(name)
             if not result.ok:
                 self.notify(
-                    f"세션 삭제 실패: {result.stderr.strip() or 'unknown error'}",
+                    f"Failed to delete session: {result.stderr.strip() or 'unknown error'}",
                     severity="error",
                     timeout=6,
                 )
                 self.bell()
                 return
-            self.notify(f"'{name}' 세션 삭제됨", timeout=4)
+            self.notify(f"Session '{name}' deleted", timeout=4)
             self.refresh_sessions()
 
         self.push_screen(ConfirmDeleteModal(name), handle)
@@ -478,7 +538,7 @@ class TmuxUIApp(App[None]):
             result = self.tmux.switch_client(target)
             if not result.ok:
                 self.notify(
-                    f"세션 전환 실패: {result.stderr.strip() or 'unknown error'}",
+                    f"Failed to switch session: {result.stderr.strip() or 'unknown error'}",
                     severity="error",
                     timeout=6,
                 )

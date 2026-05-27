@@ -51,11 +51,11 @@ class Directive:
 
 # The full list of directives `tu` cares about. Order matters: directives
 # are presented to the user (and written into the file) in this order.
-MOUSE = Directive(option="mouse", value="on", label="마우스 모드")
+MOUSE = Directive(option="mouse", value="on", label="mouse support")
 HISTORY_LIMIT = Directive(
     option="history-limit",
     value="10000000",
-    label="스크롤백 라인 수",
+    label="scrollback size",
 )
 
 MANAGED_DIRECTIVES: tuple[Directive, ...] = (MOUSE, HISTORY_LIMIT)
@@ -251,17 +251,19 @@ class ConfSetupModal(ModalScreen[str]):
         self._missing = list(missing)
 
     def compose(self) -> ComposeResult:
-        lines = ["[b]~/.tmux.conf[/b] 에 다음 항목을 추가할까요?", ""]
+        lines = ["Add the following to [b]~/.tmux.conf[/b]?", ""]
         for d in self._missing:
             lines.append(f"  [b]{d.line}[/b]   ({d.label})")
         lines.append("")
-        lines.append("추가하면 현재 tmux 서버와 다음 실행부터 모두 적용됩니다.")
+        lines.append(
+            "We'll patch both the live tmux server and the conf file."
+        )
         text = "\n".join(lines)
         with Vertical(id="conf-modal"):
             yield Static(text, classes="body")
             with Horizontal():
-                yield Button("예, 추가 (y)", id="m-yes", variant="success")
-                yield Button("다음에 (n)", id="m-later")
+                yield Button("Yes, add (y)", id="m-yes", variant="success")
+                yield Button("Later (n)", id="m-later")
 
     def action_answer(self, choice: str) -> None:
         self.dismiss(choice)
