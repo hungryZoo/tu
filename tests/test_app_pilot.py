@@ -181,16 +181,14 @@ def test_clicking_attach_button_inside_tmux_switches(
     _run(go())
 
 
-def test_detach_button_quits_when_inside_tmux(
+def test_detach_falls_back_to_tmuxclient_when_no_pane(
     monkeypatch: pytest.MonkeyPatch, silence_mouse_prompt
 ) -> None:
-    """In a non-TTY pilot environment App.suspend() raises and we fall back
-    to the captured ``self.tmux.detach_client()`` path. Either way the
-    subprocess (or stub) must receive ``detach-client`` *and* the app must
-    exit so the user is dropped back to the outer shell.
-    """
+    """No $TMUX_PANE → session lookup fails and we fall back to the
+    captured TmuxClient.detach_client() call. The app must still exit."""
 
     monkeypatch.setenv("TMUX", "/tmp/tmux-fake")
+    monkeypatch.delenv("TMUX_PANE", raising=False)
 
     async def go():
         fake = FakeTmux()
@@ -200,61 +198,90 @@ def test_detach_button_quits_when_inside_tmux(
             await pilot.press("d")
             await pilot.pause()
 
-            assert ["detach-client"] in [c for c in fake.calls]
+            assert ["detach-client"] in fake.calls
             assert app._exit is True
-
 
     _run(go())
 
 
-def test_detach_uses_app_suspend_when_supported(
+def test_detach_uses_session_target_when_pane_known(
     monkeypatch: pytest.MonkeyPatch, silence_mouse_prompt
 ) -> None:
-    """When ``app.suspend()`` works, action_detach hands the TTY to a real
-    ``tmux detach-client`` subprocess (not the captured TmuxClient path).
-    """
+    """When $TMUX_PANE is set, action_detach resolves the session name and
+    runs ``tmux detach-client -s <session>`` — never relying on TTY tricks."""
 
     import subprocess as subprocess_mod
 
     monkeypatch.setenv("TMUX", "/tmp/tmux-fake")
+    monkeypatch.setenv("TMUX_PANE", "%7")
 
-    suspend_calls: list[bool] = []
     subprocess_calls: list[list[str]] = []
 
     class FakeCompleted:
-        returncode = 0
+        def __init__(self, stdout: str = "", returncode: int = 0) -> None:
+            self.stdout = stdout
+            self.returncode = returncode
+            self.stderr = ""
 
-    def fake_run(argv, check=False):
+    def fake_run(argv, *, capture_output=False, text=False, check=False):
         subprocess_calls.append(list(argv))
+        if argv[:3] == ["tmux", "display-message", "-p"]:
+            return FakeCompleted(stdout="work\n", returncode=0)
+        if argv[:2] == ["tmux", "detach-client"]:
+            return FakeCompleted(stdout="", returncode=0)
         return FakeCompleted()
 
     monkeypatch.setattr(subprocess_mod, "run", fake_run)
-    # Also patch the symbol imported into app.py.
     monkeypatch.setattr(appmod.subprocess, "run", fake_run)
 
     async def go():
         fake = FakeTmux()
         app = TmuxUIApp(tmux=fake)
-
-        # Replace suspend() with a no-op context manager that records its
-        # use so we can prove the TTY hand-off path is exercised.
-        from contextlib import contextmanager
-
-        @contextmanager
-        def fake_suspend(self=app):
-            suspend_calls.append(True)
-            yield
-
-        monkeypatch.setattr(app, "suspend", fake_suspend)
-
         async with app.run_test(size=(100, 30)) as pilot:
             await pilot.pause()
             await pilot.press("d")
             await pilot.pause()
 
-        assert suspend_calls, "expected app.suspend() to be used"
-        assert ["tmux", "detach-client"] in subprocess_calls
-        # Captured path should NOT have been used.
-        assert all(c[0] != "detach-client" for c in fake.calls)
+            # Session name was looked up using the pane id.
+            assert [
+                "tmux",
+                "display-message",
+                "-p",
+                "-t",
+                "%7",
+                "#S",
+            ] in subprocess_calls
+            # And the detach targeted that session — *not* the no-arg form.
+            assert ["tmux", "detach-client", "-s", "work"] in subprocess_calls
+            # The captured-path fallback must *not* have run.
+            assert not any(c[0] == "detach-client" for c in fake.calls)
+            assert app._exit is True
+
+    _run(go())
+
+
+def test_quit_button_click_actually_exits(silence_mouse_prompt) -> None:
+    """Regression: ``self.action_quit()`` is async; the click handler used
+    to drop the coroutine on the floor so the button did nothing."""
+
+    async def go():
+        app = TmuxUIApp(tmux=FakeTmux())
+        async with app.run_test(size=(100, 30)) as pilot:
+            await pilot.pause()
+            await pilot.click("#btn-quit")
+            await pilot.pause()
+            assert app._exit is True
+
+    _run(go())
+
+
+def test_quit_keypress_still_exits(silence_mouse_prompt) -> None:
+    async def go():
+        app = TmuxUIApp(tmux=FakeTmux())
+        async with app.run_test(size=(100, 30)) as pilot:
+            await pilot.pause()
+            await pilot.press("q")
+            await pilot.pause()
+            assert app._exit is True
 
     _run(go())

@@ -7,6 +7,7 @@ no matter which widget has focus.
 
 from __future__ import annotations
 
+import os
 import subprocess
 from pathlib import Path
 
@@ -162,27 +163,52 @@ class TmuxUIApp(App[None]):
             self.bell()
             return
 
-        # tmux figures out *which* client to detach from the caller's TTY.
-        # ``TmuxClient._run`` captures stdout/stderr, which strips the TTY
-        # and causes ``detach-client`` to silently do nothing — leaving the
-        # user inside tmux while `tu` quits. ``App.suspend()`` hands the
-        # real terminal back to the subprocess so the client can be
-        # identified and properly detached.
-        ok = False
-        try:
-            with self.suspend():
-                completed = subprocess.run(
-                    ["tmux", "detach-client"],
-                    check=False,
-                )
-            ok = completed.returncode == 0
-        except SuspendNotSupported:
-            # Headless/piped env — best-effort fallback.
-            ok = self.tmux.detach_client().ok
+        # ``tmux detach-client`` (no args) identifies *which* client to
+        # detach from the caller's controlling TTY. We're running inside a
+        # tmux *pane* whose TTY is a server-allocated pty — not the user's
+        # client TTY — so tmux can't resolve a target and silently does
+        # nothing.
+        #
+        # The reliable approach is to discover our session name via the
+        # pane id that tmux passes in $TMUX_PANE, then detach *all* clients
+        # attached to that session with ``-s``. tmux doesn't need any TTY
+        # gymnastics for the ``-s`` form.
+        detached = self._detach_session_for_current_pane()
+        if not detached:
+            # Best-effort fallback for environments without $TMUX_PANE
+            # (older tmux, weird shells). Won't usually succeed via a pty
+            # but at least surfaces an error.
+            detached = self.tmux.detach_client().ok
 
-        if not ok:
+        if not detached:
             self.bell()
         self.exit()
+
+    def _detach_session_for_current_pane(self) -> bool:
+        """Detach every client attached to the session that owns $TMUX_PANE."""
+
+        pane = os.environ.get("TMUX_PANE", "")
+        if not pane:
+            return False
+
+        # Resolve our session name from the pane id.
+        info = subprocess.run(
+            ["tmux", "display-message", "-p", "-t", pane, "#S"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        session = info.stdout.strip()
+        if info.returncode != 0 or not session:
+            return False
+
+        result = subprocess.run(
+            ["tmux", "detach-client", "-s", session],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        return result.returncode == 0
 
     def action_refresh_now(self) -> None:
         self.refresh_sessions()
@@ -232,7 +258,10 @@ class TmuxUIApp(App[None]):
 
     @on(Button.Pressed, "#btn-quit")
     def _click_quit(self) -> None:
-        self.action_quit()
+        # ``App.action_quit`` is an async coroutine; calling it from a sync
+        # event handler creates an un-awaited coroutine and the click ends
+        # up being a no-op. The plain ``exit()`` method is sync.
+        self.exit()
 
     @on(DataTable.RowSelected)
     def _row_selected(self, event: DataTable.RowSelected) -> None:
