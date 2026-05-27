@@ -1,65 +1,31 @@
-/* tu (tmuxui) global stylesheet. Layout-only — colours rely on the theme. */
+/* tu — a tiny session menu. */
 
 Screen {
-    layers: base overlay;
+    align: center middle;
 }
 
-Header {
-    dock: top;
-}
-
-#main-hub {
-    layout: horizontal;
-    height: 1fr;
-}
-
-#main-hub SessionList {
-    width: 28%;
-    min-width: 24;
-    border-right: heavy $primary-darken-2;
-}
-
-#main-hub WindowList {
-    width: 32%;
-    min-width: 24;
-    border-right: heavy $primary-darken-2;
-}
-
-#main-hub PanePreview {
-    width: 1fr;
-}
-
-#main-popup {
-    layout: horizontal;
-    height: 1fr;
-}
-
-#main-popup SessionList {
-    width: 40%;
-    border-right: heavy $primary-darken-2;
-}
-
-#main-popup WindowList {
-    width: 1fr;
-}
-
-#search-bar {
-    dock: top;
-    height: 1;
-    background: $boost;
-    color: $text;
-    padding: 0 1;
-    display: none;
-}
-
-#search-bar.visible {
-    display: block;
-}
-
-#empty-banner {
+#root {
+    width: 70;
+    max-width: 90%;
     height: auto;
-    padding: 2 4;
-    text-align: center;
+    max-height: 80%;
+    border: thick $accent;
     background: $surface;
-    color: $text;
+    padding: 1 2;
+}
+
+DataTable {
+    height: 1fr;
+    min-height: 6;
+    max-height: 20;
+    margin-bottom: 1;
+}
+
+#buttons {
+    height: auto;
+    align: center middle;
+}
+
+#buttons Button {
+    margin: 0 1;
 }

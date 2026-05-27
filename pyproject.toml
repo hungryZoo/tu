@@ -1,7 +1,7 @@
 [project]
 name = "tmuxui"
-version = "0.1.0"
-description = "tu — a friendly TUI on top of tmux. No prefix required."
+version = "0.2.0"
+description = "tu — a tiny tmux session menu. List, create, attach, detach."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }

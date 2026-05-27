@@ -1,92 +1,74 @@
-# tu — tmuxui
+# tu
 
-A friendly TUI on top of [tmux](https://github.com/tmux/tmux). The CLI is `tu` (the python package is `tmuxui`).
+A tiny TUI menu on top of tmux. Run `tu`, see your sessions, pick one. That's it.
 
-`tu` is meant to **lower the entry bar for tmux**. You type `tu` once and arrows, `Enter`, and on-screen hints take you everywhere — no `prefix + key` to memorize.
+## What it does
 
-- Outside tmux → fullscreen Hub (sessions / windows / live preview).
-- Inside tmux → automatically appears as a tmux `display-popup` overlay.
-- Press `F12` from anywhere inside tmux to open the same popup (auto-bound while Hub is running).
-- `?` opens the cheat-sheet, `:` opens the command palette (fuzzy search, Korean aliases supported).
+- Run `tu` → a small menu opens showing every tmux session
+- **Enter** or click a row → attach to that session
+- **n** or click **New** → create a new session (auto-named `tu-1`, `tu-2`, …) and attach
+- **d** or click **Detach** → detach the current client (only enabled when you ran `tu` inside tmux)
+- **q** or click **Quit** → close the menu
 
-## Install (development)
+No preview, no command palette, no F12 binding. Mouse fully supported.
+
+```
++--------------------------------------+
+|  tu                       in tmux    |
++--------------------------------------+
+|  Session   Windows   Attached        |
+|--------------------------------------|
+| > work        3        yes           |
+|   play        1                      |
+|   scratch     2                      |
+|                                      |
++--------------------------------------+
+|     [ New (n) ]  [ Detach (d) ]      |
+|          [ Quit (q) ]                |
++--------------------------------------+
+```
+
+## Install
+
+Requires Python 3.10+ and a `tmux` binary on PATH.
 
 ```bash
+# from PyPI (when published)
+pipx install tmuxui
+
+# or from source
 git clone https://github.com/hungryZoo/tu.git
 cd tu
 uv sync
-uv run tu          # try it
+uv run tu
 ```
 
-Or install the wheel from the [Releases](https://github.com/hungryZoo/tu/releases) page:
+## Behavior
+
+| Context | What happens when you pick a session |
+| --- | --- |
+| Outside tmux | Textual suspends, `tmux attach -t <name>` takes over the terminal, and when you detach (`prefix d`) the `tu` menu reappears. |
+| Inside tmux  | `tmux switch-client -t <name>` moves your client to the picked session and `tu` exits. |
+
+The **Detach** button is disabled when `$TMUX` is not set.
+
+## Tips
+
+- For mouse clicks to reach `tu` inside tmux, enable mouse mode: `set -g mouse on` in your `~/.tmux.conf`.
+- Want a hotkey to pop `tu` open? Bind it in your `~/.tmux.conf`:
+
+  ```tmux
+  bind-key -n F12 display-popup -E "tu"
+  ```
+
+## Develop
 
 ```bash
-pipx install <wheel-url>
-# or
-uv tool install <wheel-url>
+uv sync
+uv run pytest
+uv run tu
 ```
-
-`tmux` (>= 3.2 for `display-popup`) must already be installed.
-
-## Quick start
-
-```bash
-tu                # opens Hub (outside tmux) or popup (inside tmux)
-```
-
-In Hub:
-
-- `↑/↓` or `j/k` to move, `Tab` to switch column.
-- `Enter` to attach to the highlighted session/window.
-- `n` new session · `N` new window · `r` rename · `x` kill · `m` move window.
-- `s/v` split · `o` pane picker · `z` zoom · `R` resize mode · `[` layout picker.
-- `S` toggle synchronize-panes · `y` copy mode · `L` last session.
-- `/` incremental search · `:` command palette · `?` help · `q` quit.
-
-In Popup (inside tmux, via `tu` or `F12`):
-
-- Everything above, plus `d` to detach the current client.
-- `Esc` or `q` closes the popup without action.
-
-## Optional: bind F12 permanently in tmux
-
-While Hub is running it auto-installs the F12 binding and cleans it up on exit. If you mostly use `tu` from inside tmux, add this to `~/.tmux.conf`:
-
-```tmux
-bind-key -n F12 display-popup -E -h 80% -w 80% -T " tu " "tu --popup"
-```
-
-Reload with `tmux source-file ~/.tmux.conf`.
-
-## Modes & flags
-
-```text
-tu                 # auto: Hub if outside tmux, popup overlay if inside
-tu --popup         # force popup mode (used by F12 binding)
-tu --key F1        # change the hotkey (default F12)
-tu --stay          # popup stays open after each action
-tu --version
-```
-
-## How it works
-
-```
-+----------------------------------------------------------------+
-| tu (tmuxui)                                  [?] help  [q]uit  |
-+----------------------+------------------+----------------------+
-| Sessions             | Windows          | Preview (capture)    |
-|  > work    3w  *att  |  0: edit   *     | $ vim app.py         |
-|    play    1w        |  1: logs         |   ...                |
-|    scratch 2w        |  2: shell        |                      |
-+----------------------+------------------+----------------------+
-| Enter:attach  Tab:focus  n:new  N:window  s/v:split  z:zoom    |
-| o:pane  R:resize  [:layout  S:sync  /:search  :cmd  ?:help     |
-+----------------------------------------------------------------+
-```
-
-`tu` is a thin Textual app over `tmux` CLI subprocess calls — no `tmux -CC` yet.
-Attach uses `App.suspend()` + `tmux attach`, so detach (or the popup `d` action) brings you straight back to Hub.
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+MIT
