@@ -1,200 +1,362 @@
-//! Cursive-based TUI mirroring `tmuxui.app::TmuxUIApp`.
+//! Event loop driving the ratatui view + the cross-thread plumbing
+//! around the `tmux` CLI.
 //!
-//! The Python side leans on Textual's reactive widgets; cursive forces
-//! us to drive updates ourselves via `call_on_name`. We push all
-//! cross-thread refreshes through `cb_sink` so the polling thread
-//! never touches the UI directly.
+//! The event loop is intentionally single-threaded: we poll crossterm
+//! with a 100 ms timeout, refresh the session list every two seconds,
+//! and redraw after every input or tick. Subprocess calls are
+//! synchronous — `tmux list-sessions` lands in the ballpark of 5–30 ms
+//! on a normal machine, well below a frame, so blocking the main loop
+//! is fine.
 
-use std::thread;
-use std::time::Duration;
+use std::io;
+use std::panic;
+use std::time::{Duration, Instant};
 
-use cursive::event::{Event, Key};
-use cursive::view::{Nameable, Resizable};
-use cursive::views::{Button, Dialog, DummyView, LinearLayout, SelectView, TextView};
-use cursive::Cursive;
+use crossterm::event::{
+    self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyEventKind,
+    KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+};
+use crossterm::execute;
+use crossterm::terminal::{
+    disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
+};
+use ratatui::backend::CrosstermBackend;
+use ratatui::Terminal;
 
-use crate::conf_setup;
-use crate::modals;
-use crate::models::Session;
+use crate::conf_setup::{self, Directive};
+use crate::state::{AppState, ButtonId, ConfFocus, DeleteFocus, Focus, HitTarget, Screen};
 use crate::tmux;
+use crate::view;
 
-pub const TABLE_NAME: &str = "sessions";
-pub const STATUS_NAME: &str = "status";
-const REFRESH_PERIOD: Duration = Duration::from_secs(2);
+const TICK_RATE: Duration = Duration::from_secs(2);
+const POLL_RATE: Duration = Duration::from_millis(100);
 
-/// Returned after the event loop ends; if `post_exit_argv` is set, the
-/// binary will `exec` into it to hand the terminal off cleanly (see
-/// `main.rs`). Mirrors `TmuxUIApp.post_exit_argv` in the Python port.
 #[derive(Default)]
 pub struct AppOutcome {
     pub post_exit_argv: Option<Vec<String>>,
 }
 
-pub struct AppState {
-    pub sessions: Vec<Session>,
-    pub inside_tmux: bool,
-    pub post_exit_argv: Option<Vec<String>>,
-}
-
-pub fn run() -> AppOutcome {
+pub fn run() -> io::Result<AppOutcome> {
     let inside_tmux = tmux::is_inside_tmux();
-    let mut siv = cursive::default();
-    siv.set_user_data(AppState {
-        sessions: Vec::new(),
-        inside_tmux,
-        post_exit_argv: None,
-    });
+    let mut terminal = setup_terminal()?;
 
-    let title = if inside_tmux {
-        "tu — in tmux"
-    } else {
-        "tu — outside tmux"
-    };
+    let mut state = AppState::new(inside_tmux);
+    state.set_sessions(tmux::list_sessions());
 
-    let table = SelectView::<String>::new()
-        .on_submit(on_row_submit)
-        .with_name(TABLE_NAME)
-        .full_width()
-        .min_height(6);
-
-    let buttons = LinearLayout::horizontal()
-        .child(Button::new("New (n)", action_new))
-        .child(DummyView.fixed_width(2))
-        .child(Button::new("Attach (a)", action_attach))
-        .child(DummyView.fixed_width(2))
-        .child(Button::new("Detach (d)", action_detach))
-        .child(DummyView.fixed_width(2))
-        .child(Button::new("Quit (q)", |s| s.quit()))
-        .child(DummyView.fixed_width(2))
-        .child(Button::new("Delete (del)", action_delete));
-
-    let hints = TextView::new(
-        "n: New   a: Attach   d: Detach   q: Quit   del: Delete   ↑/↓: navigate   Enter: attach",
-    );
-
-    let status = TextView::new(initial_status(inside_tmux)).with_name(STATUS_NAME);
-
-    let content = LinearLayout::vertical()
-        .child(table)
-        .child(DummyView.fixed_height(1))
-        .child(buttons)
-        .child(DummyView.fixed_height(1))
-        .child(hints)
-        .child(status);
-
-    siv.add_layer(
-        Dialog::around(content)
-            .title(title)
-            .padding_lrtb(2, 2, 1, 1),
-    );
-
-    refresh_sessions(&mut siv);
-
-    // ~/.tmux.conf baseline modal — runs on every launch, matching the
-    // Python behaviour added in v0.7.0.
-    let conf = conf_setup::conf_path();
-    let missing = conf_setup::missing_directives(&conf);
+    let missing = conf_setup::missing_directives(&conf_setup::conf_path());
     if !missing.is_empty() {
-        modals::show_conf_setup(&mut siv, missing);
+        state.screen = Screen::ConfSetup {
+            directives: missing,
+            focus: ConfFocus::default(),
+        };
     }
 
-    // Polling tick — same 2 s cadence as the Python reactive refresh.
-    let cb_sink = siv.cb_sink().clone();
-    thread::spawn(move || loop {
-        thread::sleep(REFRESH_PERIOD);
-        if cb_sink
-            .send(Box::new(|s: &mut Cursive| refresh_sessions(s)))
-            .is_err()
-        {
-            break;
+    let result = event_loop(&mut terminal, &mut state);
+
+    restore_terminal(&mut terminal);
+
+    result.map(|()| AppOutcome {
+        post_exit_argv: state.post_exit_argv.take(),
+    })
+}
+
+fn event_loop(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    state: &mut AppState,
+) -> io::Result<()> {
+    let mut last_tick = Instant::now();
+    loop {
+        terminal.draw(|f| view::render(f, state))?;
+
+        let timeout = TICK_RATE.saturating_sub(last_tick.elapsed()).min(POLL_RATE);
+        if event::poll(timeout)? {
+            handle_event(state, event::read()?);
         }
-    });
-
-    siv.add_global_callback('q', |s| s.quit());
-    siv.add_global_callback(Event::CtrlChar('c'), |s| s.quit());
-    siv.add_global_callback('n', action_new);
-    siv.add_global_callback('a', action_attach);
-    siv.add_global_callback('d', action_detach);
-    siv.add_global_callback(Key::Del, action_delete);
-
-    siv.run();
-
-    let argv = siv
-        .user_data::<AppState>()
-        .and_then(|s| s.post_exit_argv.take());
-    AppOutcome {
-        post_exit_argv: argv,
+        if last_tick.elapsed() >= TICK_RATE {
+            state.set_sessions(tmux::list_sessions());
+            last_tick = Instant::now();
+        }
+        if state.should_exit {
+            break Ok(());
+        }
     }
 }
 
-fn initial_status(inside_tmux: bool) -> &'static str {
-    if inside_tmux {
-        "Inside tmux — Detach (d) returns you to the parent shell."
-    } else {
-        "Outside tmux — Attach hands the terminal over to tmux."
+fn setup_terminal() -> io::Result<Terminal<CrosstermBackend<io::Stdout>>> {
+    enable_raw_mode()?;
+    let mut stdout = io::stdout();
+    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
+    // Make sure a panic mid-render still leaves the terminal usable.
+    let original_hook = panic::take_hook();
+    panic::set_hook(Box::new(move |info| {
+        let _ = disable_raw_mode();
+        let _ = execute!(io::stdout(), LeaveAlternateScreen, DisableMouseCapture);
+        original_hook(info);
+    }));
+    let backend = CrosstermBackend::new(stdout);
+    Terminal::new(backend)
+}
+
+fn restore_terminal(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) {
+    let _ = disable_raw_mode();
+    let _ = execute!(
+        terminal.backend_mut(),
+        LeaveAlternateScreen,
+        DisableMouseCapture
+    );
+    let _ = terminal.show_cursor();
+}
+
+// ----------------------------------------------------- dispatch
+
+fn handle_event(state: &mut AppState, ev: Event) {
+    match ev {
+        Event::Key(k) if k.kind == KeyEventKind::Press => handle_key(state, k),
+        Event::Mouse(m) => handle_mouse(state, m),
+        _ => {}
     }
 }
 
-// ----------------------------------------------------- actions
+fn handle_key(state: &mut AppState, key: KeyEvent) {
+    // Snapshot the screen so we can mutate `state` in handlers below.
+    match state.screen.clone() {
+        Screen::Main => handle_key_main(state, key),
+        Screen::ConfirmDelete { name, focus } => handle_key_delete(state, key, name, focus),
+        Screen::ConfSetup { focus, .. } => handle_key_conf(state, key, focus),
+    }
+}
 
-fn action_new(siv: &mut Cursive) {
+fn handle_key_main(state: &mut AppState, key: KeyEvent) {
+    let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+    match key.code {
+        KeyCode::Char('q') | KeyCode::Esc => {
+            state.should_exit = true;
+        }
+        KeyCode::Char('c') if ctrl => {
+            state.should_exit = true;
+        }
+        KeyCode::Char('n') => action_new_session(state),
+        KeyCode::Char('a') => action_attach_selected(state),
+        KeyCode::Char('d') => action_detach(state),
+        KeyCode::Delete => action_open_delete_modal(state),
+        KeyCode::Tab => state.focus_next(),
+        KeyCode::BackTab => state.focus_prev(),
+        KeyCode::Up => match state.focus {
+            Focus::List => state.move_selection(-1),
+            _ => state.focus = Focus::List,
+        },
+        KeyCode::Down => match state.focus {
+            Focus::List => state.move_selection(1),
+            _ => state.focus = Focus::List,
+        },
+        KeyCode::Left => {
+            if let Focus::Button(b) = state.focus {
+                state.focus = Focus::Button(b.prev());
+            }
+        }
+        KeyCode::Right => {
+            if let Focus::Button(b) = state.focus {
+                state.focus = Focus::Button(b.next());
+            }
+        }
+        KeyCode::Home => state.move_selection(i32::MIN / 2),
+        KeyCode::End => state.move_selection(i32::MAX / 2),
+        KeyCode::Enter => match state.focus {
+            Focus::List => action_attach_selected(state),
+            Focus::Button(b) => activate_main_button(state, b),
+        },
+        _ => {}
+    }
+}
+
+fn handle_key_delete(state: &mut AppState, key: KeyEvent, name: String, focus: DeleteFocus) {
+    match key.code {
+        KeyCode::Esc | KeyCode::Char('n') | KeyCode::Char('N') => dismiss_modal(state),
+        KeyCode::Tab | KeyCode::BackTab | KeyCode::Left | KeyCode::Right => {
+            toggle_delete_focus(state, focus);
+        }
+        KeyCode::Enter => match focus {
+            DeleteFocus::Cancel => dismiss_modal(state),
+            DeleteFocus::Confirm => confirm_delete(state, &name),
+        },
+        _ => {}
+    }
+}
+
+fn handle_key_conf(state: &mut AppState, key: KeyEvent, focus: ConfFocus) {
+    match key.code {
+        KeyCode::Char('y') | KeyCode::Char('Y') => apply_conf_modal(state),
+        KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => dismiss_modal(state),
+        KeyCode::Tab | KeyCode::BackTab | KeyCode::Left | KeyCode::Right => {
+            toggle_conf_focus(state, focus);
+        }
+        KeyCode::Enter => match focus {
+            ConfFocus::Yes => apply_conf_modal(state),
+            ConfFocus::Later => dismiss_modal(state),
+        },
+        _ => {}
+    }
+}
+
+fn toggle_delete_focus(state: &mut AppState, current: DeleteFocus) {
+    let next = match current {
+        DeleteFocus::Cancel => DeleteFocus::Confirm,
+        DeleteFocus::Confirm => DeleteFocus::Cancel,
+    };
+    if let Screen::ConfirmDelete { focus, .. } = &mut state.screen {
+        *focus = next;
+    }
+}
+
+fn toggle_conf_focus(state: &mut AppState, current: ConfFocus) {
+    let next = match current {
+        ConfFocus::Yes => ConfFocus::Later,
+        ConfFocus::Later => ConfFocus::Yes,
+    };
+    if let Screen::ConfSetup { focus, .. } = &mut state.screen {
+        *focus = next;
+    }
+}
+
+// ---------------------------------------------------------- mouse
+
+fn handle_mouse(state: &mut AppState, m: MouseEvent) {
+    match m.kind {
+        MouseEventKind::Moved | MouseEventKind::Drag(_) => {
+            state.hover = state.hit_test(m.column, m.row);
+        }
+        MouseEventKind::Down(MouseButton::Left) => {
+            let target = state.hit_test(m.column, m.row);
+            state.pressed = target;
+            state.hover = target;
+            if let Some(t) = target {
+                update_focus_from_hit(state, t);
+            }
+        }
+        MouseEventKind::Up(MouseButton::Left) => {
+            let release_target = state.hit_test(m.column, m.row);
+            let pressed = state.pressed.take();
+            if let (Some(p), Some(r)) = (pressed, release_target) {
+                if p == r {
+                    trigger_hit(state, p);
+                }
+            }
+            state.hover = state.hit_test(m.column, m.row);
+        }
+        MouseEventKind::ScrollDown => {
+            if matches!(state.screen, Screen::Main) {
+                state.move_selection(1);
+            }
+        }
+        MouseEventKind::ScrollUp => {
+            if matches!(state.screen, Screen::Main) {
+                state.move_selection(-1);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn update_focus_from_hit(state: &mut AppState, target: HitTarget) {
+    match target {
+        HitTarget::Button(b) => state.focus = Focus::Button(b),
+        HitTarget::ListRow(_) => state.focus = Focus::List,
+        _ => {}
+    }
+}
+
+fn trigger_hit(state: &mut AppState, target: HitTarget) {
+    let screen = state.screen.clone();
+    match (screen, target) {
+        (Screen::Main, HitTarget::Button(b)) => activate_main_button(state, b),
+        (Screen::Main, HitTarget::ListRow(idx)) => {
+            state.selected = idx;
+            action_attach_selected(state);
+        }
+        (Screen::ConfirmDelete { .. }, HitTarget::ModalPrimary) => dismiss_modal(state),
+        (Screen::ConfirmDelete { name, .. }, HitTarget::ModalSecondary) => {
+            confirm_delete(state, &name);
+        }
+        (Screen::ConfSetup { .. }, HitTarget::ModalPrimary) => apply_conf_modal(state),
+        (Screen::ConfSetup { .. }, HitTarget::ModalSecondary) => dismiss_modal(state),
+        _ => {}
+    }
+}
+
+// ---------------------------------------------------------- actions
+
+fn activate_main_button(state: &mut AppState, button: ButtonId) {
+    if !button_enabled(state, button) {
+        match button {
+            ButtonId::Attach | ButtonId::Delete => state.set_error("No session selected."),
+            ButtonId::Detach => state.set_error("Detach only works from inside tmux."),
+            _ => {}
+        }
+        return;
+    }
+    match button {
+        ButtonId::New => action_new_session(state),
+        ButtonId::Attach => action_attach_selected(state),
+        ButtonId::Detach => action_detach(state),
+        ButtonId::Quit => state.should_exit = true,
+        ButtonId::Delete => action_open_delete_modal(state),
+    }
+}
+
+fn button_enabled(state: &AppState, button: ButtonId) -> bool {
+    match button {
+        ButtonId::New | ButtonId::Quit => true,
+        ButtonId::Attach | ButtonId::Delete => state.has_sessions(),
+        ButtonId::Detach => state.inside_tmux,
+    }
+}
+
+fn action_new_session(state: &mut AppState) {
     let name = tmux::next_default_name();
     let result = tmux::new_session(&name);
     if !result.ok() {
-        set_status(
-            siv,
-            format!("Failed to create session: {}", short_err(&result.stderr)),
-        );
+        state.set_error(format!(
+            "Failed to create session: {}",
+            short_err(&result.stderr)
+        ));
         return;
     }
-    do_attach(siv, &name);
+    do_attach(state, &name);
 }
 
-fn action_attach(siv: &mut Cursive) {
-    match selected_name(siv) {
-        Some(name) => do_attach(siv, &name),
-        None => set_status(siv, "No session selected.".to_string()),
-    }
+fn action_attach_selected(state: &mut AppState) {
+    let Some(name) = state.selected_name().map(str::to_owned) else {
+        state.set_error("No session selected.");
+        return;
+    };
+    do_attach(state, &name);
 }
 
-fn do_attach(siv: &mut Cursive, target: &str) {
-    let inside_tmux = siv
-        .user_data::<AppState>()
-        .map(|s| s.inside_tmux)
-        .unwrap_or(false);
-    if inside_tmux {
+fn do_attach(state: &mut AppState, target: &str) {
+    if state.inside_tmux {
         let r = tmux::switch_client(target);
         if !r.ok() {
-            set_status(
-                siv,
-                format!("Failed to switch session: {}", short_err(&r.stderr)),
-            );
+            state.set_error(format!(
+                "Failed to switch session: {}",
+                short_err(&r.stderr)
+            ));
             return;
         }
-        siv.quit();
-        return;
-    }
-    if let Some(state) = siv.user_data::<AppState>() {
+        state.should_exit = true;
+    } else {
         state.post_exit_argv = Some(tmux::attach_argv(Some(target)));
+        state.should_exit = true;
     }
-    siv.quit();
 }
 
-fn action_detach(siv: &mut Cursive) {
-    let inside_tmux = siv
-        .user_data::<AppState>()
-        .map(|s| s.inside_tmux)
-        .unwrap_or(false);
-    if !inside_tmux {
-        set_status(siv, "Detach only works from inside tmux.".to_string());
+fn action_detach(state: &mut AppState) {
+    if !state.inside_tmux {
+        state.set_error("Detach only works from inside tmux.");
         return;
     }
-
-    let mut detail = String::new();
     let mut ok = false;
+    let mut detail = String::new();
 
-    // Prefer the session-scoped form because the no-arg variant can
-    // fail when our process owns the controlling tty.
     if let Some(session) = tmux::current_pane_session() {
         let r = tmux::detach_client_session(&session);
         if r.ok() {
@@ -203,7 +365,6 @@ fn action_detach(siv: &mut Cursive) {
             detail = r.stderr.trim().to_string();
         }
     }
-
     if !ok {
         let r = tmux::detach_client();
         if r.ok() {
@@ -212,113 +373,227 @@ fn action_detach(siv: &mut Cursive) {
             detail = r.stderr.trim().to_string();
         }
     }
-
     if ok {
-        siv.quit();
+        state.should_exit = true;
     } else {
         let reason = if detail.is_empty() {
             "unknown error".to_string()
         } else {
             detail
         };
-        set_status(siv, format!("Detach failed: {reason}"));
+        state.set_error(format!("Detach failed: {reason}"));
     }
 }
 
-fn action_delete(siv: &mut Cursive) {
-    match selected_name(siv) {
-        Some(name) => modals::show_confirm_delete(siv, name),
-        None => set_status(siv, "No session selected.".to_string()),
+fn action_open_delete_modal(state: &mut AppState) {
+    let Some(name) = state.selected_name().map(str::to_owned) else {
+        state.set_error("No session selected.");
+        return;
+    };
+    state.screen = Screen::ConfirmDelete {
+        name,
+        focus: DeleteFocus::default(),
+    };
+}
+
+fn confirm_delete(state: &mut AppState, name: &str) {
+    let r = tmux::kill_session(name);
+    if !r.ok() {
+        state.set_error(format!(
+            "Failed to delete session '{name}': {}",
+            short_err(&r.stderr)
+        ));
+        // Leave the modal up so the user can decide whether to retry
+        // — same behaviour as the cursive build.
+        return;
     }
+    state.set_info(format!("Session '{name}' deleted."));
+    state.screen = Screen::Main;
+    state.set_sessions(tmux::list_sessions());
 }
 
-// Cursive's `SelectView::on_submit` hands us `&T` where `T` is the
-// stored value type (`String`), so we cannot widen the parameter to
-// `&str` even though clippy wants us to.
-#[allow(clippy::ptr_arg)]
-fn on_row_submit(siv: &mut Cursive, target: &String) {
-    let target = target.clone();
-    do_attach(siv, &target);
+fn dismiss_modal(state: &mut AppState) {
+    state.screen = Screen::Main;
 }
 
-// ----------------------------------------------------- helpers
-
-pub fn set_status(siv: &mut Cursive, msg: impl Into<String>) {
-    let msg = msg.into();
-    siv.call_on_name(STATUS_NAME, move |t: &mut TextView| {
-        t.set_content(msg);
-    });
-}
-
-pub fn selected_name(siv: &mut Cursive) -> Option<String> {
-    siv.call_on_name(TABLE_NAME, |t: &mut SelectView<String>| {
-        t.selection().map(|s| (*s).clone())
-    })
-    .flatten()
-}
-
-pub fn refresh_sessions(siv: &mut Cursive) {
-    let sessions = tmux::list_sessions();
-    let prev = selected_name(siv);
-
-    if let Some(state) = siv.user_data::<AppState>() {
-        state.sessions = sessions.clone();
-    }
-
-    let max_name = sessions
-        .iter()
-        .map(|s| s.name.chars().count())
-        .max()
-        .unwrap_or(8)
-        .max(8);
-
-    let rows: Vec<(String, String)> = sessions
-        .iter()
-        .map(|s| {
-            let attached = if s.attached { "attached" } else { "" };
-            let label = format!(
-                "{:width$}  {:>3}w  {}",
-                s.name,
-                s.windows,
-                attached,
-                width = max_name
-            );
-            (label, s.name.clone())
-        })
-        .collect();
-
-    let empty = rows.is_empty();
-    let target = prev;
-    let mut rows = rows;
-    siv.call_on_name(TABLE_NAME, move |t: &mut SelectView<String>| {
-        t.clear();
-        for (label, value) in rows.drain(..) {
-            t.add_item(label, value);
+fn apply_conf_modal(state: &mut AppState) {
+    // Grab the directives we need from the modal state before we
+    // tear it down.
+    let directives: Vec<Directive> = match &state.screen {
+        Screen::ConfSetup { directives, .. } => directives.clone(),
+        _ => return,
+    };
+    let conf = conf_setup::conf_path();
+    match conf_setup::append_directives(&directives, &conf) {
+        Ok(()) => {
+            let applied = conf_setup::apply_directives_to_server(&directives);
+            let names: Vec<&str> = directives.iter().map(|d| d.option.as_str()).collect();
+            let tail = if applied {
+                " · live tmux server updated"
+            } else {
+                " · will take effect on next tmux start"
+            };
+            state.set_info(format!(
+                "Appended {} to {}{tail}",
+                names.join(", "),
+                conf.display()
+            ));
+            state.screen = Screen::Main;
         }
-        if let Some(p) = target {
-            let mut found: Option<usize> = None;
-            for (i, item) in t.iter().enumerate() {
-                if *item.1 == p {
-                    found = Some(i);
-                    break;
-                }
-            }
-            if let Some(i) = found {
-                t.set_selection(i);
-            }
+        Err(e) => {
+            state.set_error(format!("Failed to update ~/.tmux.conf: {e}"));
+            state.screen = Screen::Main;
         }
-    });
-
-    if empty {
-        set_status(siv, "No tmux sessions yet — hit New (n) to create one.");
     }
 }
 
-fn short_err(s: &str) -> String {
-    let trimmed = s.trim();
+fn short_err(stderr: &str) -> String {
+    let trimmed = stderr.trim();
     if trimmed.is_empty() {
         "unknown error".to_string()
     } else {
         trimmed.lines().next().unwrap_or(trimmed).to_string()
+    }
+}
+
+// ----------------------------------------------------- a tiny test surface
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::Session;
+
+    fn make_state(inside_tmux: bool, sessions: &[&str]) -> AppState {
+        let mut s = AppState::new(inside_tmux);
+        s.set_sessions(
+            sessions
+                .iter()
+                .map(|n| Session {
+                    name: (*n).into(),
+                    windows: 1,
+                    attached: false,
+                })
+                .collect(),
+        );
+        s
+    }
+
+    #[test]
+    fn attach_outside_tmux_sets_post_exit_argv() {
+        let mut s = make_state(false, &["work", "play"]);
+        s.selected = 1;
+        action_attach_selected(&mut s);
+        assert!(s.should_exit);
+        assert_eq!(
+            s.post_exit_argv,
+            Some(vec![
+                "tmux".to_string(),
+                "attach-session".to_string(),
+                "-t".to_string(),
+                "play".to_string()
+            ])
+        );
+    }
+
+    #[test]
+    fn attach_with_no_sessions_shows_error() {
+        let mut s = make_state(false, &[]);
+        action_attach_selected(&mut s);
+        assert!(!s.should_exit);
+        assert!(s.status_message.contains("No session"));
+    }
+
+    #[test]
+    fn detach_outside_tmux_shows_error() {
+        let mut s = make_state(false, &["work"]);
+        action_detach(&mut s);
+        assert!(!s.should_exit);
+        assert!(s.status_message.to_lowercase().contains("inside tmux"));
+    }
+
+    #[test]
+    fn delete_button_opens_modal_when_session_selected() {
+        let mut s = make_state(false, &["work"]);
+        action_open_delete_modal(&mut s);
+        assert!(matches!(s.screen, Screen::ConfirmDelete { .. }));
+    }
+
+    #[test]
+    fn delete_button_is_noop_without_session() {
+        let mut s = make_state(false, &[]);
+        action_open_delete_modal(&mut s);
+        assert!(matches!(s.screen, Screen::Main));
+        assert!(s.status_message.contains("No session"));
+    }
+
+    #[test]
+    fn focus_left_right_walks_button_row() {
+        let mut s = make_state(false, &["work"]);
+        s.focus = Focus::Button(ButtonId::Attach);
+        handle_key_main(
+            &mut s,
+            KeyEvent {
+                code: KeyCode::Right,
+                modifiers: KeyModifiers::empty(),
+                kind: KeyEventKind::Press,
+                state: crossterm::event::KeyEventState::empty(),
+            },
+        );
+        assert_eq!(s.focus, Focus::Button(ButtonId::Detach));
+        handle_key_main(
+            &mut s,
+            KeyEvent {
+                code: KeyCode::Left,
+                modifiers: KeyModifiers::empty(),
+                kind: KeyEventKind::Press,
+                state: crossterm::event::KeyEventState::empty(),
+            },
+        );
+        assert_eq!(s.focus, Focus::Button(ButtonId::Attach));
+    }
+
+    #[test]
+    fn quit_button_exits_via_keyboard() {
+        let mut s = make_state(false, &[]);
+        handle_key_main(
+            &mut s,
+            KeyEvent {
+                code: KeyCode::Char('q'),
+                modifiers: KeyModifiers::empty(),
+                kind: KeyEventKind::Press,
+                state: crossterm::event::KeyEventState::empty(),
+            },
+        );
+        assert!(s.should_exit);
+    }
+
+    #[test]
+    fn ctrl_c_exits() {
+        let mut s = make_state(false, &[]);
+        handle_key_main(
+            &mut s,
+            KeyEvent {
+                code: KeyCode::Char('c'),
+                modifiers: KeyModifiers::CONTROL,
+                kind: KeyEventKind::Press,
+                state: crossterm::event::KeyEventState::empty(),
+            },
+        );
+        assert!(s.should_exit);
+    }
+
+    #[test]
+    fn quit_button_skips_disabled_handling() {
+        let mut s = make_state(false, &[]);
+        activate_main_button(&mut s, ButtonId::Quit);
+        assert!(s.should_exit);
+    }
+
+    #[test]
+    fn attach_button_is_disabled_without_sessions() {
+        let mut s = make_state(false, &[]);
+        activate_main_button(&mut s, ButtonId::Attach);
+        assert!(!s.should_exit);
+        assert!(s.status_message.contains("No session"));
     }
 }
