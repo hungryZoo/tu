@@ -16,6 +16,14 @@ from textual.containers import Horizontal, Vertical
 from textual.widgets import Button, DataTable, Footer, Header
 
 from .models import Session
+from .mouse_setup import (
+    CONF_PATH,
+    MouseSetupModal,
+    apply_mouse_to_server,
+    mark_dismissed,
+    prepend_mouse_setting,
+    should_prompt_for_mouse,
+)
 from .tmux import TmuxClient, attach_argv, is_inside_tmux
 
 POLL_INTERVAL = 2.0  # seconds
@@ -69,6 +77,10 @@ class TmuxUIApp(App[None]):
 
         self.refresh_sessions()
         self.set_interval(POLL_INTERVAL, self.refresh_sessions)
+
+        # Offer to turn on mouse mode the first time the user lands here.
+        if should_prompt_for_mouse(self.tmux):
+            self.push_screen(MouseSetupModal(), self._handle_mouse_choice)
 
     # ----------------------------------------------------------- data
 
@@ -124,6 +136,35 @@ class TmuxUIApp(App[None]):
 
     def action_refresh_now(self) -> None:
         self.refresh_sessions()
+
+    # ---------------------------------------------------------- mouse setup
+
+    def _handle_mouse_choice(self, choice: str | None) -> None:
+        if choice == "yes":
+            try:
+                prepend_mouse_setting()
+            except OSError as exc:
+                self.notify(
+                    f"~/.tmux.conf 수정 실패: {exc}",
+                    severity="error",
+                    timeout=6,
+                )
+                return
+            applied = apply_mouse_to_server(self.tmux)
+            msg = f"{CONF_PATH} 에 set -g mouse on 추가 완료"
+            if applied:
+                msg += " · 현재 세션에도 적용됨"
+            else:
+                msg += " · 다음 tmux 시작부터 적용"
+            self.notify(msg, severity="information", timeout=6)
+        elif choice == "never":
+            try:
+                mark_dismissed()
+            except OSError:
+                # Best-effort; ignore if we can't persist the decision.
+                pass
+            self.notify("다음부터 묻지 않을게요.", timeout=3)
+        # "later" (or dismiss): silent, ask again next launch.
 
     # ---------------------------------------------------------- mouse
 

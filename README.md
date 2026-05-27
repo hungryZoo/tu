@@ -52,9 +52,29 @@ uv run tu
 
 The **Detach** button is disabled when `$TMUX` is not set.
 
+## Mouse mode
+
+The first time you launch `tu`, if tmux mouse mode is off and your
+`~/.tmux.conf` does not configure it, you'll see a small prompt:
+
+> tmux 마우스 모드가 꺼져 있어요.
+> `~/.tmux.conf` 맨 위에 `set -g mouse on` 을 추가할까요?
+
+Pick **예, 추가** and `tu` will:
+
+1. Prepend `set -g mouse on` (with a `# Added by tu` header comment) to
+   `~/.tmux.conf`, creating the file if missing.
+2. Apply the option to the running server immediately via
+   `tmux set-option -g mouse on`.
+
+Pick **다음에** to skip just this run, or **묻지 않기** to record the
+decision in `~/.config/tu/no-mouse-prompt` and never see the prompt again.
+The prompt also stays away whenever your conf already contains any
+`set ... mouse ...` directive (on or off) — your existing preference is
+respected.
+
 ## Tips
 
-- For mouse clicks to reach `tu` inside tmux, enable mouse mode: `set -g mouse on` in your `~/.tmux.conf`.
 - Want a hotkey to pop `tu` open? Bind it in your `~/.tmux.conf`:
 
   ```tmux

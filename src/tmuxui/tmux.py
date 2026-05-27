@@ -84,6 +84,33 @@ class TmuxClient:
     def detach_client(self) -> TmuxResult:
         return self._run(["detach-client"])
 
+    # --------------------------------------------------------- options
+
+    def server_running(self) -> bool:
+        """True if a tmux server is currently up."""
+
+        return self._run(["info"]).ok
+
+    def show_option(self, name: str, *, global_: bool = True) -> str | None:
+        """Return the value of a tmux option, or ``None`` if unset/unavailable."""
+
+        args = ["show-options"]
+        if global_:
+            args.append("-g")
+        args += ["-v", name]
+        res = self._run(args)
+        if not res.ok:
+            return None
+        value = res.stdout.strip()
+        return value or None
+
+    def set_option(self, name: str, value: str, *, global_: bool = True) -> TmuxResult:
+        args = ["set-option"]
+        if global_:
+            args.append("-g")
+        args += [name, value]
+        return self._run(args)
+
     # ----------------------------------------------------- naming helpers
 
     def next_default_name(self) -> str:
