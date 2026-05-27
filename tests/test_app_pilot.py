@@ -71,15 +71,23 @@ def test_four_buttons_render_with_correct_labels(silence_mouse_prompt) -> None:
         app = TmuxUIApp(tmux=FakeTmux())
         async with app.run_test(size=(100, 30)) as pilot:
             await pilot.pause()
-            ids = [b.id for b in app.query(Button)]
-            labels = [str(b.label) for b in app.query(Button)]
+            buttons = list(app.query(Button))
+            ids = [b.id for b in buttons]
+            labels = [str(b.label) for b in buttons]
             assert ids == ["btn-new", "btn-attach", "btn-detach", "btn-quit"]
             assert labels == [
                 "New (n)",
                 "Attach (a)",
-                "Detach & Quit (d)",
+                "Detach (d)",
                 "Quit (q)",
             ]
+            variants = {b.id: b.variant for b in buttons}
+            assert variants == {
+                "btn-new": "success",
+                "btn-attach": "primary",
+                "btn-detach": "warning",
+                "btn-quit": "error",
+            }
 
     _run(go())
 
@@ -181,34 +189,12 @@ def test_clicking_attach_button_inside_tmux_switches(
     _run(go())
 
 
-def test_detach_falls_back_to_tmuxclient_when_no_pane(
+def test_detach_succeeds_without_quitting_the_app(
     monkeypatch: pytest.MonkeyPatch, silence_mouse_prompt
 ) -> None:
-    """No $TMUX_PANE → session lookup fails and we fall back to the
-    captured TmuxClient.detach_client() call. The app must still exit."""
-
-    monkeypatch.setenv("TMUX", "/tmp/tmux-fake")
-    monkeypatch.delenv("TMUX_PANE", raising=False)
-
-    async def go():
-        fake = FakeTmux()
-        app = TmuxUIApp(tmux=fake)
-        async with app.run_test(size=(100, 30)) as pilot:
-            await pilot.pause()
-            await pilot.press("d")
-            await pilot.pause()
-
-            assert ["detach-client"] in fake.calls
-            assert app._exit is True
-
-    _run(go())
-
-
-def test_detach_uses_session_target_when_pane_known(
-    monkeypatch: pytest.MonkeyPatch, silence_mouse_prompt
-) -> None:
-    """When $TMUX_PANE is set, action_detach resolves the session name and
-    runs ``tmux detach-client -s <session>`` — never relying on TTY tricks."""
+    """Detach now only detaches — `tu` itself stays running. A
+    successful detach must call ``tmux detach-client -s <session>`` and
+    must NOT call ``self.exit()``."""
 
     import subprocess as subprocess_mod
 
@@ -218,10 +204,10 @@ def test_detach_uses_session_target_when_pane_known(
     subprocess_calls: list[list[str]] = []
 
     class FakeCompleted:
-        def __init__(self, stdout: str = "", returncode: int = 0) -> None:
+        def __init__(self, stdout: str = "", returncode: int = 0, stderr: str = "") -> None:
             self.stdout = stdout
             self.returncode = returncode
-            self.stderr = ""
+            self.stderr = stderr
 
     def fake_run(argv, *, capture_output=False, text=False, check=False):
         subprocess_calls.append(list(argv))
@@ -242,7 +228,6 @@ def test_detach_uses_session_target_when_pane_known(
             await pilot.press("d")
             await pilot.pause()
 
-            # Session name was looked up using the pane id.
             assert [
                 "tmux",
                 "display-message",
@@ -251,11 +236,106 @@ def test_detach_uses_session_target_when_pane_known(
                 "%7",
                 "#S",
             ] in subprocess_calls
-            # And the detach targeted that session — *not* the no-arg form.
             assert ["tmux", "detach-client", "-s", "work"] in subprocess_calls
-            # The captured-path fallback must *not* have run.
             assert not any(c[0] == "detach-client" for c in fake.calls)
-            assert app._exit is True
+            # The big behavioural change: `tu` stays alive.
+            assert app._exit is False
+
+    _run(go())
+
+
+def test_detach_failure_surfaces_tmux_stderr(
+    monkeypatch: pytest.MonkeyPatch, silence_mouse_prompt
+) -> None:
+    """When tmux returns a non-zero exit code the user must see the actual
+    error message — not just a silent no-op."""
+
+    import subprocess as subprocess_mod
+
+    monkeypatch.setenv("TMUX", "/tmp/tmux-fake")
+    monkeypatch.setenv("TMUX_PANE", "%7")
+
+    class FakeCompleted:
+        def __init__(self, stdout="", returncode=0, stderr="") -> None:
+            self.stdout = stdout
+            self.returncode = returncode
+            self.stderr = stderr
+
+    def fake_run(argv, *, capture_output=False, text=False, check=False):
+        if argv[:3] == ["tmux", "display-message", "-p"]:
+            return FakeCompleted(stdout="work\n", returncode=0)
+        if argv[:2] == ["tmux", "detach-client"]:
+            return FakeCompleted(returncode=1, stderr="no current client\n")
+        return FakeCompleted()
+
+    monkeypatch.setattr(subprocess_mod, "run", fake_run)
+    monkeypatch.setattr(appmod.subprocess, "run", fake_run)
+
+    async def go():
+        fake = FakeTmux()
+        # Make the captured fallback ALSO fail so we hit the error toast.
+        original_run = fake._run
+
+        def failing_run(args):
+            result = original_run(args)
+            if args and args[0] == "detach-client":
+                from tmuxui.tmux import TmuxResult
+                return TmuxResult(
+                    argv=["tmux", *args],
+                    returncode=1,
+                    stdout="",
+                    stderr="no current client",
+                )
+            return result
+
+        fake._run = failing_run  # type: ignore[method-assign]
+
+        app = TmuxUIApp(tmux=fake)
+        notifications: list[str] = []
+        original_notify = app.notify
+
+        def capture(message, *args, **kwargs):
+            notifications.append(str(message))
+            return original_notify(message, *args, **kwargs)
+
+        monkeypatch.setattr(app, "notify", capture)
+
+        async with app.run_test(size=(100, 30)) as pilot:
+            await pilot.pause()
+            await pilot.press("d")
+            await pilot.pause()
+
+            assert any("Detach 실패" in n for n in notifications), notifications
+            assert any("no current client" in n for n in notifications), notifications
+            assert app._exit is False
+
+    _run(go())
+
+
+def test_detach_outside_tmux_shows_warning(
+    monkeypatch: pytest.MonkeyPatch, silence_mouse_prompt
+) -> None:
+    monkeypatch.delenv("TMUX", raising=False)
+
+    async def go():
+        app = TmuxUIApp(tmux=FakeTmux())
+        notifications: list[str] = []
+        original_notify = app.notify
+
+        def capture(message, *args, **kwargs):
+            notifications.append(str(message))
+            return original_notify(message, *args, **kwargs)
+
+        monkeypatch.setattr(app, "notify", capture)
+
+        async with app.run_test(size=(100, 30)) as pilot:
+            await pilot.pause()
+            # Press `d` directly — the button is disabled but the keybinding
+            # still fires action_detach.
+            await pilot.press("d")
+            await pilot.pause()
+            assert any("tmux 안에서" in n for n in notifications), notifications
+            assert app._exit is False
 
     _run(go())
 

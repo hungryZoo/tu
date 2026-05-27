@@ -1,8 +1,12 @@
 """The minimal ``tu`` TUI.
 
-One screen: a session list and four buttons (New / Attach / Detach & Quit /
-Quit). Click or press the underlined key. Arrow keys and Enter always work,
-no matter which widget has focus.
+One screen: a session list and four buttons (New / Attach / Detach / Quit).
+Click or press the underlined key. Arrow keys and Enter always work, no
+matter which widget has focus.
+
+Detach only detaches the tmux client — it does not close `tu`. If you
+re-attach the session later, `tu` is still there waiting for you. Quit is
+the only action that exits.
 """
 
 from __future__ import annotations
@@ -45,7 +49,7 @@ class TmuxUIApp(App[None]):
         Binding("ctrl+c", "quit", "Quit", show=False),
         Binding("n", "new_session", "New", show=True),
         Binding("a", "attach", "Attach", show=True),
-        Binding("d", "detach", "Detach & Quit", show=True),
+        Binding("d", "detach", "Detach", show=True),
         Binding("r", "refresh_now", "Refresh", show=False),
         Binding("up", "move_cursor(-1)", "Up", show=False),
         Binding("k", "move_cursor(-1)", "Up", show=False),
@@ -69,12 +73,12 @@ class TmuxUIApp(App[None]):
                 yield Button("New (n)", id="btn-new", variant="success")
                 yield Button("Attach (a)", id="btn-attach", variant="primary")
                 yield Button(
-                    "Detach & Quit (d)",
+                    "Detach (d)",
                     id="btn-detach",
                     variant="warning",
                     disabled=not self._inside_tmux,
                 )
-                yield Button("Quit (q)", id="btn-quit")
+                yield Button("Quit (q)", id="btn-quit", variant="error")
         yield Footer()
 
     def on_mount(self) -> None:
@@ -159,39 +163,64 @@ class TmuxUIApp(App[None]):
         self._attach(name)
 
     def action_detach(self) -> None:
+        """Detach the tmux client. Does NOT exit `tu` — if you re-attach
+        the session later, `tu` is still here.
+        """
+
         if not self._inside_tmux:
+            self.notify(
+                "Detach는 tmux 안에서 tu를 실행했을 때만 동작해요.",
+                severity="warning",
+                timeout=4,
+            )
             self.bell()
             return
 
         # ``tmux detach-client`` (no args) identifies *which* client to
         # detach from the caller's controlling TTY. We're running inside a
         # tmux *pane* whose TTY is a server-allocated pty — not the user's
-        # client TTY — so tmux can't resolve a target and silently does
-        # nothing.
+        # client TTY — so tmux can't resolve a target that way and silently
+        # does nothing.
         #
-        # The reliable approach is to discover our session name via the
-        # pane id that tmux passes in $TMUX_PANE, then detach *all* clients
-        # attached to that session with ``-s``. tmux doesn't need any TTY
-        # gymnastics for the ``-s`` form.
-        detached = self._detach_session_for_current_pane()
-        if not detached:
-            # Best-effort fallback for environments without $TMUX_PANE
-            # (older tmux, weird shells). Won't usually succeed via a pty
-            # but at least surfaces an error.
-            detached = self.tmux.detach_client().ok
+        # Reliable approach: discover the session name via the pane id that
+        # tmux puts in $TMUX_PANE, then detach every client attached to
+        # that session with ``-s``. tmux doesn't need any TTY gymnastics for
+        # the ``-s`` form.
+        ok, detail = self._detach_session_for_current_pane()
+        if ok:
+            # The user is at the outer shell now and won't see this toast,
+            # but if they re-attach later they'll see a quick confirmation.
+            self.notify(f"Detached {detail}".strip(), timeout=3)
+            return
 
-        if not detached:
-            self.bell()
-        self.exit()
+        # Last-resort: try the captured no-arg form. Unlikely to succeed
+        # via a pane pty, but it lets us surface tmux's own error message.
+        fallback = self.tmux.detach_client()
+        if fallback.ok:
+            self.notify("Detached", timeout=3)
+            return
 
-    def _detach_session_for_current_pane(self) -> bool:
-        """Detach every client attached to the session that owns $TMUX_PANE."""
+        # All paths failed — show the user *why* so they can tell us.
+        reason = (detail or fallback.stderr.strip() or "unknown error").strip()
+        self.notify(
+            f"Detach 실패: {reason}",
+            severity="error",
+            timeout=8,
+        )
+        self.bell()
+
+    def _detach_session_for_current_pane(self) -> tuple[bool, str]:
+        """Detach every client attached to the session that owns $TMUX_PANE.
+
+        Returns ``(ok, detail)`` where *detail* is either the session name
+        on success or a short error string on failure (suitable for showing
+        to the user).
+        """
 
         pane = os.environ.get("TMUX_PANE", "")
         if not pane:
-            return False
+            return False, "$TMUX_PANE is not set"
 
-        # Resolve our session name from the pane id.
         info = subprocess.run(
             ["tmux", "display-message", "-p", "-t", pane, "#S"],
             capture_output=True,
@@ -200,7 +229,8 @@ class TmuxUIApp(App[None]):
         )
         session = info.stdout.strip()
         if info.returncode != 0 or not session:
-            return False
+            err = info.stderr.strip() or f"display-message exited {info.returncode}"
+            return False, err
 
         result = subprocess.run(
             ["tmux", "detach-client", "-s", session],
@@ -208,7 +238,13 @@ class TmuxUIApp(App[None]):
             text=True,
             check=False,
         )
-        return result.returncode == 0
+        if result.returncode != 0:
+            err = (
+                result.stderr.strip()
+                or f"detach-client exited {result.returncode}"
+            )
+            return False, err
+        return True, f"session “{session}”"
 
     def action_refresh_now(self) -> None:
         self.refresh_sessions()
