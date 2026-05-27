@@ -4,9 +4,23 @@ One screen: a session list and four buttons (New / Attach / Detach / Quit).
 Click or press the underlined key. Arrow keys and Enter always work, no
 matter which widget has focus.
 
-Detach only detaches the tmux client — it does not close `tu`. If you
-re-attach the session later, `tu` is still there waiting for you. Quit is
-the only action that exits.
+Every action ultimately *closes* `tu`; what differs is what they do to tmux
+first:
+
+* **Attach**       — close `tu`, then attach the parent shell to the chosen
+                     session (or, when run inside tmux, ``switch-client`` to
+                     it and let the host shell take over).
+* **New**          — create a session named ``tu-N`` and attach to it.
+* **Detach**       — only enabled inside tmux. Detach the current client so
+                     the user lands at their parent shell, then close `tu`.
+* **Quit**         — close `tu`. No tmux side-effects.
+
+For the "outside tmux" attach/new paths we don't run ``tmux attach-session``
+ourselves while Textual is still running — we set
+``post_exit_argv`` and let ``__main__.py`` ``execvp()`` into it after the
+TUI has fully torn down. This avoids the alt-screen flicker you would get
+from suspend/resume and matches the user-visible behaviour they asked for
+("들어가면서 현재쉘의 tu창은 꺼짐").
 """
 
 from __future__ import annotations
@@ -16,7 +30,7 @@ import subprocess
 from pathlib import Path
 
 from textual import on
-from textual.app import App, ComposeResult, SuspendNotSupported
+from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.widgets import Button, DataTable, Footer, Header
@@ -62,6 +76,11 @@ class TmuxUIApp(App[None]):
         self.tmux = tmux or TmuxClient()
         self._sessions: list[Session] = []
         self._inside_tmux = is_inside_tmux()
+        # When set, ``__main__.main()`` ``execvp()``s into this argv after
+        # the TUI exits. Used for the "outside tmux attach/new" flows so
+        # that ``tmux attach-session`` takes over the parent shell cleanly
+        # instead of returning to a resumed `tu`.
+        self.post_exit_argv: list[str] | None = None
 
     # ----------------------------------------------------------- compose
 
@@ -157,14 +176,23 @@ class TmuxUIApp(App[None]):
         name = self.tmux.next_default_name()
         result = self.tmux.new_session(name)
         if not result.ok:
+            self.notify(
+                f"새 세션 생성 실패: {result.stderr.strip() or 'unknown error'}",
+                severity="error",
+                timeout=6,
+            )
             self.bell()
             return
-        self.refresh_sessions()
+        # _attach takes care of closing tu and (outside tmux) handing the
+        # parent shell off to the freshly created session.
         self._attach(name)
 
     def action_detach(self) -> None:
-        """Detach the tmux client. Does NOT exit `tu` — if you re-attach
-        the session later, `tu` is still here.
+        """Detach the tmux client *and* close `tu`.
+
+        On success the user lands at their parent shell with `tu` already
+        gone. On failure we keep the menu open and show *why* in a toast
+        so the user can tell us what went wrong.
         """
 
         if not self._inside_tmux:
@@ -176,34 +204,27 @@ class TmuxUIApp(App[None]):
             self.bell()
             return
 
-        # ``tmux detach-client`` (no args) identifies *which* client to
-        # detach from the caller's controlling TTY. We're running inside a
-        # tmux *pane* whose TTY is a server-allocated pty — not the user's
-        # client TTY — so tmux can't resolve a target that way and silently
-        # does nothing.
-        #
-        # Reliable approach: discover the session name via the pane id that
-        # tmux puts in $TMUX_PANE, then detach every client attached to
-        # that session with ``-s``. tmux doesn't need any TTY gymnastics for
-        # the ``-s`` form.
         ok, detail = self._detach_session_for_current_pane()
+        if not ok:
+            # Last-resort: try the captured no-arg form via TmuxClient.
+            # Unlikely to actually detach (the pane pty isn't a client tty),
+            # but it surfaces tmux's own error message for diagnostics.
+            fallback = self.tmux.detach_client()
+            if fallback.ok:
+                ok, detail = True, ""
+            else:
+                detail = (
+                    detail or fallback.stderr.strip() or "unknown error"
+                ).strip()
+
         if ok:
-            # The user is at the outer shell now and won't see this toast,
-            # but if they re-attach later they'll see a quick confirmation.
-            self.notify(f"Detached {detail}".strip(), timeout=3)
+            # Detach worked — `tu` should go away too so the user lands
+            # cleanly at the parent shell.
+            self.exit()
             return
 
-        # Last-resort: try the captured no-arg form. Unlikely to succeed
-        # via a pane pty, but it lets us surface tmux's own error message.
-        fallback = self.tmux.detach_client()
-        if fallback.ok:
-            self.notify("Detached", timeout=3)
-            return
-
-        # All paths failed — show the user *why* so they can tell us.
-        reason = (detail or fallback.stderr.strip() or "unknown error").strip()
         self.notify(
-            f"Detach 실패: {reason}",
+            f"Detach 실패: {detail}",
             severity="error",
             timeout=8,
         )
@@ -308,25 +329,29 @@ class TmuxUIApp(App[None]):
     # ---------------------------------------------------------- attach
 
     def _attach(self, target: str) -> None:
-        """Attach (outside tmux) or switch (inside tmux) to *target*."""
+        """Close `tu` and hand the parent shell off to *target*.
+
+        Inside tmux: ``switch-client`` moves the existing client and we
+        exit. Outside tmux: we record the desired ``tmux attach-session``
+        argv and exit — ``__main__.main()`` does the actual ``execvp`` once
+        Textual has fully cleaned up.
+        """
 
         if self._inside_tmux:
-            self.tmux.switch_client(target)
-            # The current client moves to *target*; whatever pane was hosting
-            # us is no longer visible. Exit so we don't keep state around.
+            result = self.tmux.switch_client(target)
+            if not result.ok:
+                self.notify(
+                    f"세션 전환 실패: {result.stderr.strip() or 'unknown error'}",
+                    severity="error",
+                    timeout=6,
+                )
+                self.bell()
+                return
             self.exit()
             return
 
-        # Outside tmux: suspend Textual, exec ``tmux attach`` in the
-        # foreground, and resume when the user detaches.
-        try:
-            with self.suspend():
-                subprocess.run(attach_argv(target), check=False)
-        except SuspendNotSupported:
-            # Headless / piped environments can't hand the terminal over.
-            self.bell()
-            return
-        self.refresh_sessions()
+        self.post_exit_argv = attach_argv(target)
+        self.exit()
 
 
 # Resolve the stylesheet relative to this module so the wheel ships it.

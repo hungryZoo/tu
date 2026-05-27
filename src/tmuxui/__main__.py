@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 
 from . import __version__
@@ -34,7 +35,22 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 2
 
-    TmuxUIApp().run()
+    app = TmuxUIApp()
+    app.run()
+
+    # The Attach / New buttons from *outside* tmux defer the actual
+    # ``tmux attach-session`` to here so it happens after Textual has
+    # restored the terminal. ``execvp`` replaces the Python process; tmux
+    # owns the parent shell from this point on.
+    if app.post_exit_argv:
+        try:
+            os.execvp(app.post_exit_argv[0], app.post_exit_argv)
+        except OSError as exc:  # pragma: no cover — defensive
+            print(
+                f"tu: failed to launch {' '.join(app.post_exit_argv)}: {exc}",
+                file=sys.stderr,
+            )
+            return 1
     return 0
 
 

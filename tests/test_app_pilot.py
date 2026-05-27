@@ -148,9 +148,12 @@ def test_arrow_keys_move_cursor_when_button_focused(silence_mouse_prompt) -> Non
     _run(go())
 
 
-def test_attach_action_runs_switch_client_when_inside_tmux(
+def test_attach_inside_tmux_switches_client_and_exits(
     monkeypatch: pytest.MonkeyPatch, silence_mouse_prompt
 ) -> None:
+    """Spec 2a: pressing Attach inside tmux must move the existing client
+    to the highlighted session *and* close `tu`."""
+
     monkeypatch.setenv("TMUX", "/tmp/tmux-fake")
 
     async def go():
@@ -165,6 +168,8 @@ def test_attach_action_runs_switch_client_when_inside_tmux(
 
             switch_calls = [c for c in fake.calls if c and c[0] == "switch-client"]
             assert switch_calls == [["switch-client", "-t", "play"]]
+            assert app._exit is True
+            assert app.post_exit_argv is None  # no execvp inside tmux
 
     _run(go())
 
@@ -183,18 +188,79 @@ def test_clicking_attach_button_inside_tmux_switches(
             await pilot.pause()
 
             switch_calls = [c for c in fake.calls if c and c[0] == "switch-client"]
-            # Cursor starts on row 0 (work).
             assert switch_calls == [["switch-client", "-t", "work"]]
+            assert app._exit is True
 
     _run(go())
 
 
-def test_detach_succeeds_without_quitting_the_app(
+def test_attach_outside_tmux_defers_attach_to_post_exit(
     monkeypatch: pytest.MonkeyPatch, silence_mouse_prompt
 ) -> None:
-    """Detach now only detaches — `tu` itself stays running. A
-    successful detach must call ``tmux detach-client -s <session>`` and
-    must NOT call ``self.exit()``."""
+    """Spec 1a: outside tmux, Attach must close `tu` and stash the
+    ``tmux attach-session`` argv so the launcher can ``execvp`` into it."""
+
+    monkeypatch.delenv("TMUX", raising=False)
+
+    async def go():
+        fake = FakeTmux()
+        app = TmuxUIApp(tmux=fake)
+        async with app.run_test(size=(100, 30)) as pilot:
+            await pilot.pause()
+            await pilot.press("down")  # highlight "play"
+            await pilot.pause()
+            await pilot.press("a")
+            await pilot.pause()
+
+            # No switch-client should be issued outside tmux.
+            assert not any(c and c[0] == "switch-client" for c in fake.calls)
+            assert app.post_exit_argv == [
+                "tmux",
+                "attach-session",
+                "-t",
+                "play",
+            ]
+            assert app._exit is True
+
+    _run(go())
+
+
+def test_new_session_outside_tmux_creates_then_defers_attach(
+    monkeypatch: pytest.MonkeyPatch, silence_mouse_prompt
+) -> None:
+    """Spec 1b: outside tmux, ``n`` creates a new session *and* hands the
+    parent shell over to it via post_exit_argv."""
+
+    monkeypatch.delenv("TMUX", raising=False)
+
+    async def go():
+        fake = FakeTmux()
+        app = TmuxUIApp(tmux=fake)
+        async with app.run_test(size=(100, 30)) as pilot:
+            await pilot.pause()
+            await pilot.press("n")
+            await pilot.pause()
+
+            new_calls = [c for c in fake.calls if c and c[0] == "new-session"]
+            assert new_calls, fake.calls
+            created_name = new_calls[0][new_calls[0].index("-s") + 1]
+            assert app.post_exit_argv == [
+                "tmux",
+                "attach-session",
+                "-t",
+                created_name,
+            ]
+            assert app._exit is True
+
+    _run(go())
+
+
+def test_detach_succeeds_and_quits_the_app(
+    monkeypatch: pytest.MonkeyPatch, silence_mouse_prompt
+) -> None:
+    """Spec 2d: a successful detach must call
+    ``tmux detach-client -s <session>`` *and* close `tu` so the user
+    lands at the parent shell cleanly."""
 
     import subprocess as subprocess_mod
 
@@ -237,9 +303,12 @@ def test_detach_succeeds_without_quitting_the_app(
                 "#S",
             ] in subprocess_calls
             assert ["tmux", "detach-client", "-s", "work"] in subprocess_calls
+            # We must NOT fall back to the captured no-arg detach when the
+            # ``-s`` path already succeeded.
             assert not any(c[0] == "detach-client" for c in fake.calls)
-            # The big behavioural change: `tu` stays alive.
-            assert app._exit is False
+            # And `tu` should be gone so the user lands at the parent shell.
+            assert app._exit is True
+            assert app.post_exit_argv is None  # detach doesn't execvp anything
 
     _run(go())
 

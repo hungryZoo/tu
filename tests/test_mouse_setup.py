@@ -20,7 +20,6 @@ from tmuxui.tmux import TmuxResult
 
 from .conftest import StubTmuxClient
 
-
 # ----------------------------------------------------- conf detection
 
 

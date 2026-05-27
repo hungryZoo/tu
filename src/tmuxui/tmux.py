@@ -74,8 +74,10 @@ class TmuxClient:
     # ----------------------------------------------------------- mutation
 
     def new_session(self, name: str) -> TmuxResult:
-        # ``-d`` so the session is created detached; the UI handles attaching
-        # afterwards either via App.suspend()+attach or via switch-client.
+        # ``-d`` keeps the new session detached on the server. The UI then
+        # either ``switch-client``s the existing tmux client to it (inside
+        # tmux) or stashes a ``tmux attach-session`` argv for the launcher
+        # to ``execvp`` into after Textual shuts down (outside tmux).
         return self._run(["new-session", "-d", "-s", name])
 
     def switch_client(self, target: str) -> TmuxResult:

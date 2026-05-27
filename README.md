@@ -9,9 +9,12 @@ A tiny TUI menu on top of tmux. Run `tu`, see your sessions, pick one. That's it
 - **Enter** or click a row → attach to that session
 - **n** or click **New** → create a new session (auto-named `tu-1`, `tu-2`, …) and attach
 - **a** or click **Attach** → attach to whichever session is highlighted
-- **d** or click **Detach** → detach the current tmux client (only enabled inside tmux).
-  `tu` itself keeps running, so re-attaching the session brings the menu right back.
-- **q** or click **Quit** → close `tu`. Only Quit exits the app.
+- **d** or click **Detach** → detach the current tmux client and close `tu`
+  (only enabled when run inside tmux)
+- **q** or click **Quit** → close `tu`. No tmux side-effects.
+
+Every action closes the `tu` window — what differs is what it does to tmux
+first. See [Behavior](#behavior) for the exact spec.
 
 No preview, no command palette, no F12 binding. Mouse fully supported.
 
@@ -48,15 +51,43 @@ uv run tu
 
 ## Behavior
 
-| Context | What happens when you pick a session |
-| --- | --- |
-| Outside tmux | Textual suspends, `tmux attach -t <name>` takes over the terminal, and when you detach (`prefix d`) the `tu` menu reappears. |
-| Inside tmux  | `tmux switch-client -t <name>` moves your client to the picked session and `tu` exits. |
+`tu` behaves a little differently depending on whether you launched it
+from your parent shell or from inside a tmux pane.
 
-The **Detach** button is disabled when `$TMUX` is not set. Pressing Detach
-runs `tmux detach-client -s <session>` (the session is resolved from
-`$TMUX_PANE`) — `tu` itself stays open on the tmux server and is right
-there waiting if you re-attach.
+### 1. From the parent shell (outside tmux)
+
+1. Run `tu` — the menu opens in the parent shell.
+1a. Pick a session with ↑/↓ and **Enter** (or click **Attach**) — `tu`
+    closes and the parent shell hands itself over to `tmux attach-session
+    -t <name>`. When you later detach from tmux you land back at the
+    parent shell, not at `tu`.
+1b. Press **n** (or click **New**) — `tu` creates a fresh `tu-N` session
+    and attaches the parent shell to it (same hand-off as 1a).
+1c. Press **q** (or click **Quit**) — `tu` simply closes.
+
+The **Detach** button is disabled in this mode because there is no tmux
+client to detach.
+
+### 2. From a tmux pane (inside tmux)
+
+2. Run `tu` inside a tmux pane — the menu opens in that pane.
+2a. Same as 1a, except the existing tmux client is moved to the picked
+    session via `tmux switch-client -t <name>` and `tu` exits.
+2b. Same as 1b, with the new session reached via `switch-client`.
+2c. Same as 1c.
+2d. Press **d** (or click **Detach**) — `tu` runs
+    `tmux detach-client -s <session>` (the session is resolved from
+    `$TMUX_PANE`) so the current client is detached and you land at the
+    parent shell, then `tu` closes too.
+
+Under the hood, the "outside tmux" Attach/New flows don't keep `tu`
+suspended in the background — `tu` exits cleanly first and the launcher
+``execvp``s into `tmux attach-session`. That means there's no flicker
+when you eventually detach: you go straight from your tmux session back
+to the parent shell prompt.
+
+If a detach fails for any reason, `tu` stays open and shows the actual
+tmux error in a toast so you can see what went wrong.
 
 ## Mouse mode
 
