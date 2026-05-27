@@ -31,7 +31,13 @@ fn main() -> ExitCode {
         return ExitCode::from(2);
     }
 
-    let outcome = app::run();
+    let outcome = match app::run() {
+        Ok(o) => o,
+        Err(e) => {
+            eprintln!("tu: terminal i/o error: {e}");
+            return ExitCode::from(1);
+        }
+    };
 
     let Some(argv) = outcome.post_exit_argv else {
         return ExitCode::SUCCESS;
