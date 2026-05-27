@@ -161,9 +161,27 @@ class TmuxUIApp(App[None]):
         if not self._inside_tmux:
             self.bell()
             return
-        self.tmux.detach_client()
-        # ``detach-client`` returns immediately; the client is now gone so the
-        # popup-or-pane that hosts us has nothing left to render. Exit cleanly.
+
+        # tmux figures out *which* client to detach from the caller's TTY.
+        # ``TmuxClient._run`` captures stdout/stderr, which strips the TTY
+        # and causes ``detach-client`` to silently do nothing — leaving the
+        # user inside tmux while `tu` quits. ``App.suspend()`` hands the
+        # real terminal back to the subprocess so the client can be
+        # identified and properly detached.
+        ok = False
+        try:
+            with self.suspend():
+                completed = subprocess.run(
+                    ["tmux", "detach-client"],
+                    check=False,
+                )
+            ok = completed.returncode == 0
+        except SuspendNotSupported:
+            # Headless/piped env — best-effort fallback.
+            ok = self.tmux.detach_client().ok
+
+        if not ok:
+            self.bell()
         self.exit()
 
     def action_refresh_now(self) -> None:

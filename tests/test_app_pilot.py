@@ -184,6 +184,12 @@ def test_clicking_attach_button_inside_tmux_switches(
 def test_detach_button_quits_when_inside_tmux(
     monkeypatch: pytest.MonkeyPatch, silence_mouse_prompt
 ) -> None:
+    """In a non-TTY pilot environment App.suspend() raises and we fall back
+    to the captured ``self.tmux.detach_client()`` path. Either way the
+    subprocess (or stub) must receive ``detach-client`` *and* the app must
+    exit so the user is dropped back to the outer shell.
+    """
+
     monkeypatch.setenv("TMUX", "/tmp/tmux-fake")
 
     async def go():
@@ -195,6 +201,60 @@ def test_detach_button_quits_when_inside_tmux(
             await pilot.pause()
 
             assert ["detach-client"] in [c for c in fake.calls]
-            assert app._exit is True  # textual sets this when App.exit() runs
+            assert app._exit is True
+
+
+    _run(go())
+
+
+def test_detach_uses_app_suspend_when_supported(
+    monkeypatch: pytest.MonkeyPatch, silence_mouse_prompt
+) -> None:
+    """When ``app.suspend()`` works, action_detach hands the TTY to a real
+    ``tmux detach-client`` subprocess (not the captured TmuxClient path).
+    """
+
+    import subprocess as subprocess_mod
+
+    monkeypatch.setenv("TMUX", "/tmp/tmux-fake")
+
+    suspend_calls: list[bool] = []
+    subprocess_calls: list[list[str]] = []
+
+    class FakeCompleted:
+        returncode = 0
+
+    def fake_run(argv, check=False):
+        subprocess_calls.append(list(argv))
+        return FakeCompleted()
+
+    monkeypatch.setattr(subprocess_mod, "run", fake_run)
+    # Also patch the symbol imported into app.py.
+    monkeypatch.setattr(appmod.subprocess, "run", fake_run)
+
+    async def go():
+        fake = FakeTmux()
+        app = TmuxUIApp(tmux=fake)
+
+        # Replace suspend() with a no-op context manager that records its
+        # use so we can prove the TTY hand-off path is exercised.
+        from contextlib import contextmanager
+
+        @contextmanager
+        def fake_suspend(self=app):
+            suspend_calls.append(True)
+            yield
+
+        monkeypatch.setattr(app, "suspend", fake_suspend)
+
+        async with app.run_test(size=(100, 30)) as pilot:
+            await pilot.pause()
+            await pilot.press("d")
+            await pilot.pause()
+
+        assert suspend_calls, "expected app.suspend() to be used"
+        assert ["tmux", "detach-client"] in subprocess_calls
+        # Captured path should NOT have been used.
+        assert all(c[0] != "detach-client" for c in fake.calls)
 
     _run(go())
