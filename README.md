@@ -9,6 +9,8 @@ A tiny TUI menu on top of tmux. Run `tu`, see your sessions, pick one. That's it
 - **Enter** or click a row → attach to that session
 - **n** or click **New** → create a new session (auto-named `tu-1`, `tu-2`, …) and attach
 - **a** or click **Attach** → attach to whichever session is highlighted
+- Click **Delete** (no keyboard shortcut — by design) → confirmation modal
+  asks if you really mean it; only then is the session killed
 - **d** or click **Detach** → detach the current tmux client and close `tu`
   (only enabled when run inside tmux)
 - **q** or click **Quit** → close `tu`. No tmux side-effects.
@@ -19,19 +21,19 @@ first. See [Behavior](#behavior) for the exact spec.
 No preview, no command palette, no F12 binding. Mouse fully supported.
 
 ```
-+------------------------------------------+
-|  tu                          in tmux     |
-+------------------------------------------+
-|  Session   Windows   Attached            |
-|------------------------------------------|
-| > work        3        yes               |
-|   play        1                          |
-|   scratch     2                          |
-|                                          |
-+------------------------------------------+
-| [ New (n) ] [ Attach (a) ] [ Detach (d) ]|
-|             [ Quit (q) ]                 |
-+------------------------------------------+
++------------------------------------------------------+
+|  tu                              in tmux             |
++------------------------------------------------------+
+|  Session   Windows   Attached                        |
+|------------------------------------------------------|
+| > work        3        yes                           |
+|   play        1                                      |
+|   scratch     2                                      |
+|                                                      |
++------------------------------------------------------+
+|  [ New (n) ] [ Attach (a) ] [ Delete ]               |
+|              [ Detach (d) ] [ Quit (q) ]             |
++------------------------------------------------------+
 ```
 
 ## Install
@@ -89,26 +91,50 @@ to the parent shell prompt.
 If a detach fails for any reason, `tu` stays open and shows the actual
 tmux error in a toast so you can see what went wrong.
 
-## Mouse mode
+## Deleting a session
 
-The first time you launch `tu`, if tmux mouse mode is off and your
-`~/.tmux.conf` does not configure it, you'll see a small prompt:
+Sessions can be deleted from the menu — but Delete is deliberately
+mouse-only: there is no keyboard shortcut for it so a stray keystroke
+can never nuke a session.
 
-> tmux 마우스 모드가 꺼져 있어요.
-> `~/.tmux.conf` 맨 위에 `set -g mouse on` 을 추가할까요?
+1. Click the **Delete** button on the highlighted row.
+2. A confirmation modal opens: *"정말 '<name>' 세션을 삭제하시겠습니까?"*
+   The initial focus is on **Back**, so an accidental Enter cancels.
+3. Click **Delete** (or **Back** / press Escape to cancel). On confirm,
+   `tu` runs `tmux kill-session -t <name>` and refreshes the list.
+
+If you ran `tu` from inside the very session you are deleting, tmux
+also tears down that pane — you'll land at the parent shell.
+
+## `~/.tmux.conf` baseline
+
+Every time `tu` launches, it checks `~/.tmux.conf` for two directives:
+
+| Directive                             | Why `tu` wants it                          |
+| ------------------------------------- | ------------------------------------------ |
+| `set -g mouse on`                     | clicking and scrolling in tmux Just Work   |
+| `set -g history-limit 10000000`       | a generously-sized scrollback buffer       |
+
+If either is missing, a small modal asks whether to add it:
+
+> `~/.tmux.conf` 에 다음 항목을 추가할까요?
+>
+> &nbsp;&nbsp;**set -g mouse on**   (마우스 모드)
+> &nbsp;&nbsp;**set -g history-limit 10000000**   (스크롤백 라인 수)
 
 Pick **예, 추가** and `tu` will:
 
-1. Prepend `set -g mouse on` (with a `# Added by tu` header comment) to
-   `~/.tmux.conf`, creating the file if missing.
-2. Apply the option to the running server immediately via
-   `tmux set-option -g mouse on`.
+1. Append the missing directives to the **end** of `~/.tmux.conf`
+   (creating the file if absent) under a `# Added by tu` header
+   comment. tmux's last-line-wins rule means our values stay
+   authoritative even if an older conflicting line lives higher up.
+2. Apply them to the running tmux server immediately via
+   `tmux set-option -g <opt> <value>`.
 
-Pick **다음에** to skip just this run, or **묻지 않기** to record the
-decision in `~/.config/tu/no-mouse-prompt` and never see the prompt again.
-The prompt also stays away whenever your conf already contains any
-`set ... mouse ...` directive (on or off) — your existing preference is
-respected.
+Pick **다음에** to skip just this run — `tu` re-checks every launch
+until both directives are present (or you've explicitly disabled them in
+your conf, in which case your preference is respected and the modal
+stays away).
 
 ## Tips
 

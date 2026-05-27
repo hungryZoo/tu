@@ -88,3 +88,9 @@ def test_detach_client_argv(stub: StubTmuxClient) -> None:
     stub.detach_client()
 
     assert stub.argvs == [["tmux", "detach-client"]]
+
+
+def test_kill_session_argv(stub: StubTmuxClient) -> None:
+    stub.kill_session("play")
+
+    assert stub.argvs == [["tmux", "kill-session", "-t", "play"]]

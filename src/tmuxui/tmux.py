@@ -86,6 +86,11 @@ class TmuxClient:
     def detach_client(self) -> TmuxResult:
         return self._run(["detach-client"])
 
+    def kill_session(self, name: str) -> TmuxResult:
+        """Permanently remove the session called *name*."""
+
+        return self._run(["kill-session", "-t", name])
+
     # --------------------------------------------------------- options
 
     def server_running(self) -> bool:

@@ -33,20 +33,93 @@ from textual import on
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
-from textual.widgets import Button, DataTable, Footer, Header
+from textual.screen import ModalScreen
+from textual.widgets import Button, DataTable, Footer, Header, Static
 
-from .models import Session
-from .mouse_setup import (
+from .conf_setup import (
     CONF_PATH,
-    MouseSetupModal,
-    apply_mouse_to_server,
-    mark_dismissed,
-    prepend_mouse_setting,
-    should_prompt_for_mouse,
+    ConfSetupModal,
+    Directive,
+    append_directives,
+    apply_directives_to_server,
+    missing_directives,
 )
+from .models import Session
 from .tmux import TmuxClient, attach_argv, is_inside_tmux
 
 POLL_INTERVAL = 2.0  # seconds
+
+
+class ConfirmDeleteModal(ModalScreen[bool]):
+    """Confirm permanent deletion of a tmux session.
+
+    Two buttons: **Back** (focused by default — pressing Enter on a
+    stray keystroke must NOT delete anything) and **Delete**. The
+    keyboard has no app-level shortcut for the delete action itself; the
+    user has to traverse to this modal by clicking ``#btn-delete`` first
+    and then explicitly confirm.
+    """
+
+    DEFAULT_CSS = """
+    ConfirmDeleteModal {
+        align: center middle;
+    }
+    #confirm-delete {
+        width: 60;
+        max-width: 95%;
+        height: auto;
+        border: thick $accent;
+        background: $surface;
+        padding: 1 2;
+    }
+    #confirm-delete .msg {
+        margin-bottom: 1;
+    }
+    #confirm-delete Horizontal {
+        height: auto;
+        align: center middle;
+    }
+    #confirm-delete Button {
+        margin: 0 1;
+    }
+    """
+
+    # Only ``escape`` is bound: it's the cancel verb every TUI user
+    # knows. There is intentionally no key binding for confirming the
+    # deletion — the user must click (or Tab to + Enter on) the Delete
+    # button.
+    BINDINGS = [
+        Binding("escape", "back", "Back"),
+    ]
+
+    def __init__(self, session_name: str) -> None:
+        super().__init__()
+        self._session_name = session_name
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="confirm-delete"):
+            yield Static(
+                f"정말 [b]'{self._session_name}'[/b] 세션을 삭제하시겠습니까?\n"
+                "이 작업은 되돌릴 수 없습니다.",
+                classes="msg",
+            )
+            with Horizontal():
+                # Back first → it gets the initial focus, so an
+                # accidental Enter dismisses the modal instead of
+                # killing the session.
+                yield Button("Back", id="cd-back", variant="primary")
+                yield Button("Delete", id="cd-delete", variant="error")
+
+    def action_back(self) -> None:
+        self.dismiss(False)
+
+    @on(Button.Pressed, "#cd-back")
+    def _click_back(self) -> None:
+        self.dismiss(False)
+
+    @on(Button.Pressed, "#cd-delete")
+    def _click_delete(self) -> None:
+        self.dismiss(True)
 
 
 class TmuxUIApp(App[None]):
@@ -91,6 +164,16 @@ class TmuxUIApp(App[None]):
             with Horizontal(id="buttons"):
                 yield Button("New (n)", id="btn-new", variant="success")
                 yield Button("Attach (a)", id="btn-attach", variant="primary")
+                # Delete has *no* key binding on purpose — the user
+                # explicitly asked for this so a stray keystroke can't
+                # nuke a session. Mouse click only, with a confirmation
+                # modal layered on top of that.
+                yield Button(
+                    "Delete",
+                    id="btn-delete",
+                    variant="warning",
+                    disabled=True,
+                )
                 yield Button(
                     "Detach (d)",
                     id="btn-detach",
@@ -111,9 +194,16 @@ class TmuxUIApp(App[None]):
         self.refresh_sessions()
         self.set_interval(POLL_INTERVAL, self.refresh_sessions)
 
-        # Offer to turn on mouse mode the first time the user lands here.
-        if should_prompt_for_mouse(self.tmux):
-            self.push_screen(MouseSetupModal(), self._handle_mouse_choice)
+        # Every launch: re-check ~/.tmux.conf and offer to add anything
+        # still missing (mouse mode, history-limit, …). Once the user
+        # has expressed an intent in the conf for a directive we leave
+        # it alone, so saying "yes" once is permanent.
+        missing = missing_directives()
+        if missing:
+            self.push_screen(
+                ConfSetupModal(missing),
+                lambda choice: self._handle_conf_choice(choice, missing),
+            )
 
     # ----------------------------------------------------------- data
 
@@ -128,9 +218,22 @@ class TmuxUIApp(App[None]):
             attached = "yes" if session.attached else ""
             table.add_row(session.name, str(session.windows), attached)
 
-        # Restore cursor where possible.
+        # Delete + Attach only make sense when there's a session to act on.
+        # Detach has its own gate (inside-tmux), so we leave that alone.
+        try:
+            delete_btn = self.query_one("#btn-delete", Button)
+            attach_btn = self.query_one("#btn-attach", Button)
+        except Exception:
+            # ``compose`` hasn't run yet on the very first refresh.
+            delete_btn = attach_btn = None
+        if delete_btn is not None:
+            delete_btn.disabled = not sessions
+        if attach_btn is not None:
+            attach_btn.disabled = not sessions
+
         if not sessions:
             return
+
         target_row = 0
         if previous is not None:
             for idx, session in enumerate(sessions):
@@ -270,36 +373,59 @@ class TmuxUIApp(App[None]):
     def action_refresh_now(self) -> None:
         self.refresh_sessions()
 
-    # ---------------------------------------------------------- mouse setup
+    # ---------------------------------------------------------- conf setup
 
-    def _handle_mouse_choice(self, choice: str | None) -> None:
-        if choice == "yes":
-            try:
-                prepend_mouse_setting()
-            except OSError as exc:
+    def _handle_conf_choice(
+        self,
+        choice: str | None,
+        missing: list[Directive],
+    ) -> None:
+        if choice != "yes":
+            # ``"later"`` or modal dismissal: silent, ask again next launch.
+            return
+
+        try:
+            append_directives(missing)
+        except OSError as exc:
+            self.notify(
+                f"~/.tmux.conf 수정 실패: {exc}",
+                severity="error",
+                timeout=6,
+            )
+            return
+
+        applied = apply_directives_to_server(missing, self.tmux)
+        labels = ", ".join(d.line for d in missing)
+        msg = f"{CONF_PATH} 끝에 추가: {labels}"
+        if applied:
+            msg += " · 현재 tmux 서버에도 적용됨"
+        else:
+            msg += " · 다음 tmux 시작부터 적용"
+        self.notify(msg, severity="information", timeout=8)
+
+    # ---------------------------------------------------------- delete
+
+    def _open_delete_confirmation(self, name: str) -> None:
+        """Open the confirm modal for *name* and wire up the kill on yes."""
+
+        def handle(answer: bool | None) -> None:
+            if answer is not True:
+                return
+            result = self.tmux.kill_session(name)
+            if not result.ok:
                 self.notify(
-                    f"~/.tmux.conf 수정 실패: {exc}",
+                    f"세션 삭제 실패: {result.stderr.strip() or 'unknown error'}",
                     severity="error",
                     timeout=6,
                 )
+                self.bell()
                 return
-            applied = apply_mouse_to_server(self.tmux)
-            msg = f"{CONF_PATH} 에 set -g mouse on 추가 완료"
-            if applied:
-                msg += " · 현재 세션에도 적용됨"
-            else:
-                msg += " · 다음 tmux 시작부터 적용"
-            self.notify(msg, severity="information", timeout=6)
-        elif choice == "never":
-            try:
-                mark_dismissed()
-            except OSError:
-                # Best-effort; ignore if we can't persist the decision.
-                pass
-            self.notify("다음부터 묻지 않을게요.", timeout=3)
-        # "later" (or dismiss): silent, ask again next launch.
+            self.notify(f"'{name}' 세션 삭제됨", timeout=4)
+            self.refresh_sessions()
 
-    # ---------------------------------------------------------- mouse
+        self.push_screen(ConfirmDeleteModal(name), handle)
+
+    # ----------------------------------------------------- button clicks
 
     @on(Button.Pressed, "#btn-new")
     def _click_new(self) -> None:
@@ -308,6 +434,17 @@ class TmuxUIApp(App[None]):
     @on(Button.Pressed, "#btn-attach")
     def _click_attach(self) -> None:
         self.action_attach()
+
+    @on(Button.Pressed, "#btn-delete")
+    def _click_delete(self) -> None:
+        # Click-only by design — no key binding feeds this. We *still*
+        # require a confirmation modal on top to make the gesture
+        # intentional.
+        name = self._selected_name()
+        if name is None:
+            self.bell()
+            return
+        self._open_delete_confirmation(name)
 
     @on(Button.Pressed, "#btn-detach")
     def _click_detach(self) -> None:

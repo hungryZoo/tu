@@ -5,7 +5,7 @@ Screen {
 }
 
 #root {
-    width: 84;
+    width: 100;
     max-width: 95%;
     height: auto;
     max-height: 80%;
