@@ -1,0 +1,36 @@
+[package]
+name = "tmuxui"
+version = "0.9.0"
+edition = "2021"
+authors = ["hungryZoo <heonzoo.lee@gmail.com>"]
+description = "tu — a tiny tmux session menu. List, create, attach, detach, delete."
+license = "MIT"
+homepage = "https://github.com/hungryZoo/tu"
+repository = "https://github.com/hungryZoo/tu"
+keywords = ["tmux", "tui", "cursive", "terminal"]
+categories = ["command-line-utilities"]
+readme = "README.md"
+
+[[bin]]
+name = "tu"
+path = "src/main.rs"
+
+[dependencies]
+# Cursive sits at the same conceptual level as Textual (Dialog
+# ≈ ModalScreen, SelectView ≈ DataTable, button callbacks ≈ event
+# handlers), which keeps the port close to the Python reference.
+cursive = { version = "0.21", default-features = false, features = ["crossterm-backend"] }
+regex = "1"
+clap = { version = "4", features = ["derive"] }
+dirs = "5"
+
+[dev-dependencies]
+tempfile = "3"
+
+[profile.release]
+# Optimise for binary size — this is a CLI tool, not a hot loop.
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"
