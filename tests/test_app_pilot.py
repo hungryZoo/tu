@@ -77,46 +77,30 @@ def test_five_buttons_render_with_correct_labels(
             buttons = list(app.query(Button))
             ids = [b.id for b in buttons]
             labels = [str(b.label) for b in buttons]
+            # Spec from user: New / Attach / Detach / Quit / Delete,
+            # with Quit grey and Delete red.
             assert ids == [
                 "btn-new",
                 "btn-attach",
-                "btn-delete",
                 "btn-detach",
                 "btn-quit",
+                "btn-delete",
             ]
             assert labels == [
                 "New (n)",
                 "Attach (a)",
-                "Delete",  # NO key hint — deliberately click-only.
                 "Detach (d)",
                 "Quit (q)",
+                "Delete (del)",
             ]
             variants = {b.id: b.variant for b in buttons}
             assert variants == {
                 "btn-new": "success",
                 "btn-attach": "primary",
-                "btn-delete": "warning",
                 "btn-detach": "warning",
-                "btn-quit": "error",
+                "btn-quit": "default",  # grey
+                "btn-delete": "error",  # red
             }
-
-    _run(go())
-
-
-def test_delete_button_has_no_app_level_keybinding(silence_mouse_prompt) -> None:
-    """The Delete action MUST stay mouse-only. Verify the app exposes no
-    binding pointing to a delete-style action."""
-
-    async def go():
-        app = TmuxUIApp(tmux=FakeTmux())
-        async with app.run_test(size=(120, 30)) as pilot:
-            await pilot.pause()
-            for binding in app.BINDINGS:
-                # Binding.action / .key may be on the namedtuple-like
-                # Binding instance — accept both attribute forms.
-                action = getattr(binding, "action", "") or ""
-                assert "delete" not in action.lower(), binding
-                assert "kill" not in action.lower(), binding
 
     _run(go())
 
@@ -608,80 +592,40 @@ def test_delete_modal_failure_shows_toast(silence_mouse_prompt) -> None:
     _run(go())
 
 
-# ----------------------------------------------------- status line
+# ----------------------------------------------------- delete keybinding
 
 
-def test_status_line_lists_every_action_including_delete(
-    monkeypatch: pytest.MonkeyPatch, silence_mouse_prompt
-) -> None:
-    """Bottom status bar shows New/Attach/Delete/Detach/Quit. Delete
-    appears with a 'click' marker (since it has no key binding) — the
-    user must still see it as an available action."""
-
-    monkeypatch.setenv("TMUX", "/tmp/tmux-fake")
+def test_command_palette_is_disabled(silence_mouse_prompt) -> None:
+    """The header used to carry Textual's command-palette icon — we
+    don't want it on a screen this minimal."""
 
     async def go():
-        from tmuxui.app import StatusLine
-
         app = TmuxUIApp(tmux=FakeTmux())
         async with app.run_test(size=(120, 30)) as pilot:
             await pilot.pause()
-            status = app.query_one(StatusLine)
-            rendered = status.render().plain
-            assert "New" in rendered
-            assert "Attach" in rendered
-            assert "Delete" in rendered
-            assert "Detach" in rendered
-            assert "Quit" in rendered
-            # Delete must NOT carry a keyboard hint — it's click-only.
-            assert "click" in rendered
-            for letter in ("n", "a", "d", "q"):
-                assert f" {letter} " in rendered, rendered
+            assert app.ENABLE_COMMAND_PALETTE is False
 
     _run(go())
 
 
-def test_status_line_hides_detach_when_outside_tmux(
-    monkeypatch: pytest.MonkeyPatch, silence_mouse_prompt
+def test_delete_key_opens_modal_but_does_not_kill_directly(
+    silence_mouse_prompt,
 ) -> None:
-    """Outside tmux, Detach is disabled — the status bar should drop it
-    so the user isn't told about an action they can't take."""
-
-    monkeypatch.delenv("TMUX", raising=False)
-
-    async def go():
-        from tmuxui.app import StatusLine
-
-        app = TmuxUIApp(tmux=FakeTmux())
-        async with app.run_test(size=(120, 30)) as pilot:
-            await pilot.pause()
-            rendered = app.query_one(StatusLine).render().plain
-            assert "Detach" not in rendered
-            # Delete is *always* present — it doesn't depend on $TMUX.
-            assert "Delete" in rendered
-
-    _run(go())
-
-
-def test_no_key_press_can_trigger_kill_session(silence_mouse_prompt) -> None:
-    """Smoke check: pressing each ASCII key on the main screen must not
-    call kill-session — Delete is *click-only*. We also assert the modal
-    never appears via keyboard."""
+    """Pressing the dedicated Delete key must surface the confirmation
+    modal — never invoke ``kill-session`` directly. The modal still
+    defaults focus to Back so a stray Enter cancels."""
 
     async def go():
+        from tmuxui.app import ConfirmDeleteModal
+
         fake = FakeTmux()
         app = TmuxUIApp(tmux=fake)
         async with app.run_test(size=(120, 30)) as pilot:
             await pilot.pause()
-            for key in "abcdefghijklmoprstuvwxyz0123456789":
-                # Skip keys that quit / detach / new-session: those
-                # actions intentionally close the modal screen and would
-                # disrupt this smoke check.
-                if key in {"q", "n", "a", "d"}:
-                    continue
-                await pilot.press(key)
-                await pilot.pause()
+            await pilot.press("delete")
+            await pilot.pause()
 
+            assert isinstance(app.screen, ConfirmDeleteModal)
             assert not any(c and c[0] == "kill-session" for c in fake.calls)
 
     _run(go())

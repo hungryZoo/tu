@@ -9,31 +9,32 @@ A tiny TUI menu on top of tmux. Run `tu`, see your sessions, pick one. That's it
 - **Enter** or click a row → attach to that session
 - **n** or click **New** → create a new session (auto-named `tu-1`, `tu-2`, …) and attach
 - **a** or click **Attach** → attach to whichever session is highlighted
-- Click **Delete** (no keyboard shortcut — by design) → confirmation modal
-  asks if you really mean it; only then is the session killed
 - **d** or click **Detach** → detach the current tmux client and close `tu`
   (only enabled when run inside tmux)
 - **q** or click **Quit** → close `tu`. No tmux side-effects.
+- **Delete key** or click the red **Delete** button → confirmation modal
+  asks if you really mean it; only then is the session killed
 
 Every action closes the `tu` window — what differs is what it does to tmux
 first. See [Behavior](#behavior) for the exact spec.
 
-No preview, no command palette, no F12 binding. Mouse fully supported.
+No preview, no command palette. Mouse fully supported.
 
 ```
-+------------------------------------------------------+
-|  tu                              in tmux             |
-+------------------------------------------------------+
-|  Session   Windows   Attached                        |
-|------------------------------------------------------|
-| > work        3        yes                           |
-|   play        1                                      |
-|   scratch     2                                      |
-|                                                      |
-+------------------------------------------------------+
-|  [ New (n) ] [ Attach (a) ] [ Delete ]               |
-|              [ Detach (d) ] [ Quit (q) ]             |
-+------------------------------------------------------+
++------------------------------------------------------------+
+|  tu                                  in tmux               |
++------------------------------------------------------------+
+|  Session   Windows   Attached                              |
+|------------------------------------------------------------|
+| > work        3        yes                                 |
+|   play        1                                            |
+|   scratch     2                                            |
+|                                                            |
++------------------------------------------------------------+
+| [New (n)] [Attach (a)] [Detach (d)] [Quit (q)] [Delete]    |
++------------------------------------------------------------+
+|  n New   a Attach   d Detach   q Quit   del Delete         |
++------------------------------------------------------------+
 ```
 
 ## Install
@@ -93,21 +94,24 @@ tmux error in a toast so you can see what went wrong.
 
 ## Deleting a session
 
-Sessions can be deleted from the menu — but Delete is deliberately
-mouse-only: there is no keyboard shortcut for it so a stray keystroke
-can never nuke a session. The bottom status bar still lists it (tagged
-`click`) so you always know it's available.
+Sessions can be deleted from the menu — but the action is gated by a
+confirmation modal so a single keystroke can't nuke anything.
 
-1. Click the **Delete** button on the highlighted row.
+1. Press the **Delete** key (or click the red **Delete** button) on
+   the highlighted row.
 2. A confirmation modal opens: *"Really delete session '<name>'? This
    cannot be undone."* The initial focus is on **Back**, so an
    accidental Enter cancels.
-3. Click **Delete** (or **Back** / press Escape to cancel). On
-   confirm, `tu` runs `tmux kill-session -t <name>` and refreshes the
-   list.
+3. Tab to **Delete** and press Enter (or click it). To bail out:
+   press Escape, click **Back**, or just Enter the focused Back
+   button. On confirm, `tu` runs `tmux kill-session -t <name>` and
+   refreshes the list.
 
 If you ran `tu` from inside the very session you are deleting, tmux
 also tears down that pane — you'll land at the parent shell.
+
+Tip: on macOS laptops the dedicated *forward-delete* key is **fn +
+delete**.
 
 ## `~/.tmux.conf` baseline
 

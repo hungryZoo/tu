@@ -1,7 +1,7 @@
 """The minimal ``tu`` TUI.
 
-One screen: a session list and five buttons (New / Attach / Delete /
-Detach / Quit). Click or press the underlined key. Arrow keys and Enter
+One screen: a session list and five buttons (New / Attach / Detach /
+Quit / Delete). Click or press the underlined key. Arrow keys and Enter
 always work, no matter which widget has focus.
 
 Every action ultimately *closes* `tu`; what differs is what they do to tmux
@@ -11,11 +11,12 @@ first:
                      session (or, when run inside tmux, ``switch-client`` to
                      it and let the host shell take over).
 * **New**          — create a session named ``tu-N`` and attach to it.
-* **Delete**       — click-only. Opens a confirmation modal; on confirm,
-                     ``tmux kill-session -t <name>``.
 * **Detach**       — only enabled inside tmux. Detach the current client so
                      the user lands at their parent shell, then close `tu`.
 * **Quit**         — close `tu`. No tmux side-effects.
+* **Delete**       — bound to the ``Delete`` key (and the red button at
+                     the far right). Opens a confirmation modal first; on
+                     confirm, ``tmux kill-session -t <name>``.
 
 For the "outside tmux" attach/new paths we don't run ``tmux attach-session``
 ourselves while Textual is still running — we set ``post_exit_argv`` and
@@ -30,13 +31,12 @@ import os
 import subprocess
 from pathlib import Path
 
-from rich.text import Text
 from textual import on
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
-from textual.widgets import Button, DataTable, Header, Static
+from textual.widgets import Button, DataTable, Footer, Header, Static
 
 from .conf_setup import (
     CONF_PATH,
@@ -52,56 +52,14 @@ from .tmux import TmuxClient, attach_argv, is_inside_tmux
 POLL_INTERVAL = 2.0  # seconds
 
 
-class StatusLine(Static):
-    """Bottom status bar — keyboard hints *plus* click-only entries.
-
-    Textual's built-in ``Footer`` only renders entries that have a real
-    ``Binding`` behind them. That's a problem for actions like Delete
-    that we deliberately do not bind to a keystroke. ``StatusLine``
-    accepts a free-form list of ``(key, description)`` tuples; when
-    ``key`` is ``None`` we render a "click" tag in place of a keystroke,
-    so the user still sees the action listed.
-    """
-
-    DEFAULT_CSS = """
-    StatusLine {
-        dock: bottom;
-        height: 1;
-        background: $panel;
-        color: $text;
-    }
-    """
-
-    # Rendered with reverse-video to mimic Textual's Footer's keystroke
-    # affordance; the click marker uses the same shape so the row still
-    # reads as a grid of "action chips".
-    _CLICK_TAG = "click"
-
-    def __init__(self, entries: list[tuple[str | None, str]]) -> None:
-        super().__init__()
-        self._entries = entries
-
-    def render(self) -> Text:
-        text = Text(no_wrap=True, overflow="ellipsis")
-        for index, (key, description) in enumerate(self._entries):
-            if index:
-                text.append("   ")
-            if key is None:
-                text.append(f" {self._CLICK_TAG} ", style="dim reverse")
-            else:
-                text.append(f" {key} ", style="reverse")
-            text.append(f" {description} ")
-        return text
-
-
 class ConfirmDeleteModal(ModalScreen[bool]):
     """Confirm permanent deletion of a tmux session.
 
     Two buttons: **Back** (focused by default — pressing Enter on a
-    stray keystroke must NOT delete anything) and **Delete**. The
-    keyboard has no app-level shortcut for the delete action itself; the
-    user has to traverse to this modal by clicking ``#btn-delete`` first
-    and then explicitly confirm.
+    stray keystroke must NOT delete anything) and **Delete**. Inside
+    this modal the only keyboard shortcut is ``Escape`` → Back; the
+    user must explicitly Tab over to (or click) the Delete button to
+    actually kill the session.
     """
 
     DEFAULT_CSS = """
@@ -171,16 +129,26 @@ class TmuxUIApp(App[None]):
 
     CSS_PATH = "styles.tcss"
 
+    # Textual's built-in command palette icon clutters the header for a
+    # screen this minimal — turn it off everywhere (also disables the
+    # Ctrl+P binding).
+    ENABLE_COMMAND_PALETTE = False
+
     # Enter is intentionally not bound at the app level: the focused widget
     # (DataTable row or a Button) handles it through its own default action.
     # Arrow keys (and j/k) are bound at the app level so the list stays
     # navigable even when a button currently holds focus.
     BINDINGS = [
-        Binding("q", "quit", "Quit", show=True),
-        Binding("ctrl+c", "quit", "Quit", show=False),
         Binding("n", "new_session", "New", show=True),
         Binding("a", "attach", "Attach", show=True),
         Binding("d", "detach", "Detach", show=True),
+        Binding("q", "quit", "Quit", show=True),
+        # Delete is bound to the dedicated ``Delete`` key (on macOS
+        # laptops: ``fn+delete``). The confirmation modal is still on
+        # the critical path so a stray Del press can't immediately
+        # destroy a session.
+        Binding("delete", "delete_session", "Delete", show=True),
+        Binding("ctrl+c", "quit", "Quit", show=False),
         Binding("r", "refresh_now", "Refresh", show=False),
         Binding("up", "move_cursor(-1)", "Up", show=False),
         Binding("k", "move_cursor(-1)", "Up", show=False),
@@ -208,40 +176,29 @@ class TmuxUIApp(App[None]):
             with Horizontal(id="buttons"):
                 yield Button("New (n)", id="btn-new", variant="success")
                 yield Button("Attach (a)", id="btn-attach", variant="primary")
-                # Delete has *no* key binding on purpose — the user
-                # explicitly asked for this so a stray keystroke can't
-                # nuke a session. Mouse click only, with a confirmation
-                # modal layered on top of that.
-                yield Button(
-                    "Delete",
-                    id="btn-delete",
-                    variant="warning",
-                    disabled=True,
-                )
                 yield Button(
                     "Detach (d)",
                     id="btn-detach",
                     variant="warning",
                     disabled=not self._inside_tmux,
                 )
-                yield Button("Quit (q)", id="btn-quit", variant="error")
-        yield self._build_status_line()
-
-    def _build_status_line(self) -> StatusLine:
-        """Render the bottom status bar — keys plus a click-only Delete."""
-
-        entries: list[tuple[str | None, str]] = [
-            ("n", "New"),
-            ("a", "Attach"),
-            # Delete intentionally has no keyboard binding (a stray
-            # keystroke must never destroy a session). We still surface
-            # it in the status bar so users know it exists.
-            (None, "Delete"),
-        ]
-        if self._inside_tmux:
-            entries.append(("d", "Detach"))
-        entries.append(("q", "Quit"))
-        return StatusLine(entries)
+                # Quit sits inline with the destructive trio so the
+                # user always has an obvious "do nothing else, just
+                # close" exit. Variant ``default`` gives it a neutral
+                # grey background to keep visual focus on the action
+                # buttons.
+                yield Button("Quit (q)", id="btn-quit", variant="default")
+                # Delete is parked at the far right (out of the way of
+                # the common-case buttons) and rendered in red since it
+                # is the only truly destructive action. The
+                # confirmation modal is still on the critical path.
+                yield Button(
+                    "Delete (del)",
+                    id="btn-delete",
+                    variant="error",
+                    disabled=True,
+                )
+        yield Footer()
 
     def on_mount(self) -> None:
         self.title = "tu"
@@ -465,6 +422,21 @@ class TmuxUIApp(App[None]):
 
     # ---------------------------------------------------------- delete
 
+    def action_delete_session(self) -> None:
+        """Open the delete confirmation modal for the highlighted row.
+
+        Bound to the ``Delete`` key and shared with the Delete button.
+        Pressing Del never kills anything directly — it just opens the
+        modal, which still requires an explicit second confirmation
+        (Back is focused by default).
+        """
+
+        name = self._selected_name()
+        if name is None:
+            self.bell()
+            return
+        self._open_delete_confirmation(name)
+
     def _open_delete_confirmation(self, name: str) -> None:
         """Open the confirm modal for *name* and wire up the kill on yes."""
 
@@ -497,14 +469,9 @@ class TmuxUIApp(App[None]):
 
     @on(Button.Pressed, "#btn-delete")
     def _click_delete(self) -> None:
-        # Click-only by design — no key binding feeds this. We *still*
-        # require a confirmation modal on top to make the gesture
-        # intentional.
-        name = self._selected_name()
-        if name is None:
-            self.bell()
-            return
-        self._open_delete_confirmation(name)
+        # Shares the same code path as the Del keybinding so the
+        # confirmation modal is always on the critical path.
+        self.action_delete_session()
 
     @on(Button.Pressed, "#btn-detach")
     def _click_detach(self) -> None:
