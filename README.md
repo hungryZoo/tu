@@ -1,36 +1,25 @@
-# tu
+<div align="center">
 
-A tiny TUI menu on top of `tmux`. Run `tu`, see your sessions, pick
-one. That's it.
+# `tu`
 
-Shipped as a single statically-friendly binary written in Rust
-(`ratatui` + `crossterm`) — no Python, no venv, no Textual runtime.
+**A tiny TUI menu on top of `tmux`.**
+List, create, attach, detach, or delete sessions — keyboard
+*and* mouse, no prefix-key gymnastics.
 
-> Looking for the original Python implementation? It's frozen on the
-> [`python-legacy`](https://github.com/hungryZoo/tu/tree/python-legacy)
-> branch and tagged as
-> [`v0.9.0`](https://github.com/hungryZoo/tu/releases/tag/v0.9.0). All
-> future development happens here.
+[![Release](https://img.shields.io/github/v/release/hungryZoo/tu?style=flat-square&color=cba6f7&labelColor=1e1e2e)](https://github.com/hungryZoo/tu/releases/latest)
+[![License](https://img.shields.io/badge/license-MIT-89b4fa?style=flat-square&labelColor=1e1e2e)](LICENSE)
+[![Platforms](https://img.shields.io/badge/platforms-macOS%20%C2%B7%20Linux%20%C2%B7%20Pi-a6e3a1?style=flat-square&labelColor=1e1e2e)](#install)
+[![Built with ratatui](https://img.shields.io/badge/built%20with-ratatui-fab387?style=flat-square&labelColor=1e1e2e)](https://github.com/ratatui-org/ratatui)
 
-## What it does
+</div>
 
-- Run `tu` → a small menu opens listing every tmux session
-- **↑ / ↓** navigate the list — even while a button is focused
-- **Single click** a row → just selects it
-- **Double click** a row, **Enter** with the list focused, or click
-  **Attach (a)** → attach to that session
-- **n** or click **New** → create a new session (auto-named `tu-1`,
-  `tu-2`, …) and attach
-- **d** or click **Detach** → detach the current tmux client and close
-  `tu` (only enabled when run inside tmux)
-- **q** or click **Quit** → close `tu`. No tmux side-effects.
-- **Delete** key or click the red **Delete** button → confirmation
-  modal asks if you really mean it; only then is the session killed
-- Mouse hover, press and release feedback on every button; wheel
-  scrolls the session list.
+---
 
-Every action closes the `tu` window — what differs is what it does to
-tmux first. See [Behavior](#behavior) for the exact spec.
+`tu` is a single 1.3 MB binary that opens a small picker over your
+running `tmux` sessions. Pick one to attach, double-click to dive in,
+**n** to spawn a fresh session, **d** to detach the current client,
+**Delete** to kill a session (with a confirmation). Run it inside
+tmux or from a fresh shell — it adapts.
 
 ```
 +------------------------------------------------------------+
@@ -49,196 +38,217 @@ tmux first. See [Behavior](#behavior) for the exact spec.
 +------------------------------------------------------------+
 ```
 
+> A short demo (WebP) lands here once it's recorded — see
+> [Roadmap](#roadmap).
+
+## Features
+
+- **Session picker first, everything else second.** No preview,
+  no command palette, no plugin system. Just the list.
+- **Keyboard and mouse, in equal weight.** Hover lights up
+  buttons, single-click selects, double-click attaches; every
+  action also has a one-key shortcut.
+- **Knows where it is.** Outside tmux, attach/new `execvp`s into
+  `tmux attach-session` so you skip the flicker. Inside tmux,
+  the same actions use `switch-client`; **Detach** becomes
+  available.
+- **Safe Delete.** `del` opens a confirmation modal with focus
+  on *Back* — accidental Enter cancels.
+- **Self-bootstrapping `~/.tmux.conf`.** First launch offers to
+  append `set -g mouse on` and `set -g history-limit 10000000`,
+  applies them to the running server, then asks you to restart
+  `tu` so the new config takes effect cleanly.
+- **Catppuccin Mocha** theme with proper focus, hover, press and
+  disabled states across every widget.
+
 ## Install
 
-Pre-built binaries for macOS (Apple Silicon) and Linux (x86_64 /
-aarch64, both glibc and fully-static musl) are attached to every
-[GitHub release](https://github.com/hungryZoo/tu/releases).
+### macOS — Homebrew (tap)
 
 ```bash
-# macOS, Apple Silicon
-curl -L -o tu.tar.gz \
-  https://github.com/hungryZoo/tu/releases/latest/download/tu-aarch64-apple-darwin.tar.gz
-tar -xzf tu.tar.gz
-chmod +x tu
-mv tu /usr/local/bin/tu
+brew tap hungryZoo/tu https://github.com/hungryZoo/tu
+brew install tu
 ```
 
-Swap the archive name for your target:
+The same tap covers both Apple Silicon and Intel Macs; Homebrew
+picks the right bottle for you.
 
-| Target                          | When to pick it                     |
-| ------------------------------- | ----------------------------------- |
-| `aarch64-apple-darwin`          | macOS, Apple Silicon (M1/M2/M3/M4)  |
-| `x86_64-unknown-linux-gnu`      | Linux x86_64, dynamic glibc         |
-| `aarch64-unknown-linux-gnu`     | Linux ARM64, dynamic glibc          |
-| `x86_64-unknown-linux-musl`     | Linux x86_64, fully static          |
-| `aarch64-unknown-linux-musl`    | Linux ARM64, fully static           |
+### Linux — `.deb` (Debian, Ubuntu, Raspberry Pi OS, …)
 
-The `musl` builds are statically linked and run on essentially any
-glibc-or-musl Linux distro; the `gnu` builds are smaller but require
-glibc ≥ 2.17 (CentOS 7 era).
+```bash
+# x86_64
+curl -LO https://github.com/hungryZoo/tu/releases/latest/download/tu_1.0.0_amd64.deb
+sudo dpkg -i tu_1.0.0_amd64.deb
 
-## Build from source
+# ARM64 (Pi 4/5 64-bit, AWS Graviton, …)
+curl -LO https://github.com/hungryZoo/tu/releases/latest/download/tu_1.0.0_arm64.deb
+sudo dpkg -i tu_1.0.0_arm64.deb
 
-Requires a stable Rust toolchain (1.78+).
+# ARMv7 (Pi 2/3/4/5 32-bit OS)
+curl -LO https://github.com/hungryZoo/tu/releases/latest/download/tu_1.0.0_armhf.deb
+sudo dpkg -i tu_1.0.0_armhf.deb
+```
+
+### Linux — `.rpm` (Fedora, RHEL, CentOS, openSUSE, …)
+
+```bash
+# x86_64
+sudo rpm -i https://github.com/hungryZoo/tu/releases/latest/download/tu-1.0.0-1.x86_64.rpm
+
+# ARM64
+sudo rpm -i https://github.com/hungryZoo/tu/releases/latest/download/tu-1.0.0-1.aarch64.rpm
+```
+
+### Anywhere — tarball
+
+Grab the archive matching your platform from the
+[latest release](https://github.com/hungryZoo/tu/releases/latest),
+unpack it, drop the binary somewhere on `PATH`:
+
+```bash
+tar -xzf tu-1.0.0-<triple>.tar.gz
+sudo install -m 0755 tu /usr/local/bin/tu
+```
+
+| Triple                          | Use it for                                      |
+| ------------------------------- | ----------------------------------------------- |
+| `aarch64-apple-darwin`          | macOS, Apple Silicon (M1/M2/M3/M4)              |
+| `x86_64-apple-darwin`           | macOS, Intel                                    |
+| `x86_64-unknown-linux-gnu`      | Linux x86_64, dynamic glibc                     |
+| `x86_64-unknown-linux-musl`     | Linux x86_64, fully static                      |
+| `aarch64-unknown-linux-gnu`     | Linux ARM64 (Raspberry Pi 3/4/5 in 64-bit OS)   |
+| `aarch64-unknown-linux-musl`    | Linux ARM64, fully static                       |
+| `armv7-unknown-linux-gnueabihf` | Raspberry Pi 2/3/4/5 running 32-bit Pi OS       |
+
+`musl` builds are statically linked and need nothing on the host;
+`gnu` builds are smaller but require glibc ≥ 2.17.
+
+### Verifying
+
+Every release ships a `SHA256SUMS` file. After downloading any
+asset:
+
+```bash
+shasum -a 256 -c SHA256SUMS --ignore-missing
+```
+
+### From source
 
 ```bash
 git clone https://github.com/hungryZoo/tu.git
 cd tu
-cargo build --release
-./target/release/tu
+cargo install --path .          # drops `tu` into ~/.cargo/bin
 ```
 
-Run the test suite:
+Requires Rust 1.78 +. `cargo test` runs ~40 unit tests.
+
+## Quickstart
 
 ```bash
-cargo test    # ~40 unit tests across models / tmux / conf / state / app
+tu                # outside tmux → pick / create → execvp into tmux
+tu                # inside tmux  → pick (switch-client) / detach
 ```
 
-### Cross-compile (macOS → Linux)
+Optional, but very nice — bind a hotkey in `~/.tmux.conf`:
 
-We cross-compile to Linux via
-[`cargo-zigbuild`](https://github.com/rust-cross/cargo-zigbuild),
-which uses `zig` as the C linker so you don't need a Linux toolchain
-or Docker.
-
-```bash
-brew install zig
-cargo install --locked cargo-zigbuild
-rustup target add \
-  x86_64-unknown-linux-gnu \
-  aarch64-unknown-linux-gnu \
-  x86_64-unknown-linux-musl \
-  aarch64-unknown-linux-musl
-
-cargo zigbuild --release --target x86_64-unknown-linux-gnu
-cargo zigbuild --release --target aarch64-unknown-linux-gnu
-cargo zigbuild --release --target x86_64-unknown-linux-musl
-cargo zigbuild --release --target aarch64-unknown-linux-musl
+```tmux
+bind-key -n F12 display-popup -E "tu"
 ```
+
+Now F12 from any pane pops `tu` over your work.
 
 ## Behavior
 
-`tu` behaves a little differently depending on whether you launched it
-from your parent shell or from inside a tmux pane.
+`tu` behaves a little differently depending on whether you
+launched it from your parent shell or from inside a tmux pane.
 
-### 1. From the parent shell (outside tmux)
+### From the parent shell (outside tmux)
 
 1. Run `tu` — the menu opens in the parent shell.
-1a. Pick a session with ↑/↓ and **Enter** (or double-click a row, or
-    click **Attach**) — `tu` closes and the parent shell hands itself
-    over to `tmux attach-session -t <name>`. When you later detach
-    from tmux you land back at the parent shell, not at `tu`.
-1b. Press **n** (or click **New**) — `tu` creates a fresh `tu-N`
-    session and attaches the parent shell to it (same hand-off as 1a).
-1c. Press **q** (or click **Quit**) — `tu` simply closes.
+2. Pick a session with ↑/↓ + **Enter** (or double-click a row,
+   or click **Attach**) → `tu` closes and the parent shell
+   `execvp`s into `tmux attach-session -t <name>`. Detaching
+   from tmux later lands you back at the parent shell, not
+   at `tu`.
+3. **n** / **New** creates a fresh `tu-N` session and attaches
+   to it via the same hand-off.
+4. **q** / **Quit** just closes `tu`.
 
-The **Detach** button is disabled in this mode because there is no
-tmux client to detach.
+**Detach** is greyed out: there is no tmux client to detach.
 
-### 2. From a tmux pane (inside tmux)
+### From a tmux pane (inside tmux)
 
-2. Run `tu` inside a tmux pane — the menu opens in that pane.
-2a. Same as 1a, except the existing tmux client is moved to the
-    picked session via `tmux switch-client -t <name>` and `tu` exits.
-2b. Same as 1b, with the new session reached via `switch-client`.
-2c. Same as 1c.
-2d. Press **d** (or click **Detach**) — `tu` runs
-    `tmux detach-client -s <session>` (the session is resolved from
-    `$TMUX_PANE`) so the current client is detached and you land at
-    the parent shell, then `tu` closes too.
+1. Run `tu` inside a tmux pane.
+2. Pick / create works the same, except the existing client is
+   moved with `tmux switch-client -t <name>`.
+3. **d** / **Detach** runs `tmux detach-client -s <session>`
+   (the session is resolved from `$TMUX_PANE`) so the current
+   client detaches and you land back at the parent shell — and
+   `tu` closes too.
 
-Under the hood, the "outside tmux" Attach/New flows don't keep `tu`
-suspended in the background — `tu` exits cleanly first and the
-launcher `execvp`s into `tmux attach-session`. That means there's no
-flicker when you eventually detach: you go straight from your tmux
-session back to the parent shell prompt.
+If a tmux command fails, `tu` stays open and surfaces the
+actual error in its status line.
 
-If a detach fails for any reason, `tu` stays open and shows the
-actual tmux error in its status line so you can see what went wrong.
+### Deleting a session
 
-## Deleting a session
+Hard-deletes are gated by a confirmation modal so a single
+keystroke can't nuke anything.
 
-Sessions can be deleted from the menu — but the action is gated by a
-confirmation modal so a single keystroke can't nuke anything.
+1. Highlight a row, press **Delete** (or click the red **Delete**
+   button).
+2. *"Really delete session 'X'? This cannot be undone."* opens
+   with focus on **Back** — Enter cancels by default.
+3. Tab to **Delete**, hit Enter (or click it). On confirm, `tu`
+   runs `tmux kill-session -t <name>` and refreshes the list.
 
-1. Press the **Delete** key (or click the red **Delete** button) on
-   the highlighted row.
-2. A confirmation modal opens: *"Really delete session '<name>'?
-   This cannot be undone."* The initial focus is on **Back**, so an
-   accidental Enter cancels.
-3. Tab to **Delete** and press Enter (or click it). To bail out:
-   press Escape, click **Back**, or just Enter the focused Back
-   button. On confirm, `tu` runs `tmux kill-session -t <name>` and
-   refreshes the list.
+> macOS laptops use **fn + delete** for the forward-Delete key.
 
-If you ran `tu` from inside the very session you are deleting, tmux
-also tears down that pane — you'll land at the parent shell.
+### `~/.tmux.conf` baseline
 
-Tip: on macOS laptops the dedicated *forward-delete* key is **fn +
-delete**.
+On every launch `tu` checks for two directives:
 
-## `~/.tmux.conf` baseline
+| Directive                       | Why                                    |
+| ------------------------------- | -------------------------------------- |
+| `set -g mouse on`               | Clicks + scroll work everywhere        |
+| `set -g history-limit 10000000` | A generously-sized scrollback buffer   |
 
-Every time `tu` launches, it checks `~/.tmux.conf` for two
-directives:
+If either is missing, a modal offers to add it. Picking **Yes,
+add** will:
 
-| Directive                             | Why `tu` wants it                          |
-| ------------------------------------- | ------------------------------------------ |
-| `set -g mouse on`                     | clicking and scrolling in tmux Just Work   |
-| `set -g history-limit 10000000`       | a generously-sized scrollback buffer       |
+1. Append the missing lines to **the end** of `~/.tmux.conf`
+   under a `# Added by tu` header. tmux's last-line-wins rule
+   keeps these authoritative even if an older conflicting line
+   sits higher up.
+2. Apply them to the running server with `tmux set-option -g`.
+3. Show a *"restart tu"* notice — press Enter and `tu` exits so
+   your next launch starts from a clean slate.
 
-If either is missing, a small modal asks whether to add it. Pick
-**Yes, add** and `tu` will:
+If you've deliberately set `mouse off` (or any explicit value),
+`tu` respects it: the modal stays away.
 
-1. Append the missing directives to the **end** of `~/.tmux.conf`
-   (creating the file if absent) under a `# Added by tu` header
-   comment. tmux's last-line-wins rule means our values stay
-   authoritative even if an older conflicting line lives higher up.
-2. Apply them to the running tmux server immediately via
-   `tmux set-option -g <opt> <value>`.
-3. Show a *"restart tu"* notice so the next `tu` launch picks up
-   the fresh config from a clean slate — press Enter and `tu` quits.
-
-Pick **Later** to skip just this run — `tu` re-checks every launch
-until both directives are present (or you've explicitly disabled
-them in your conf, in which case your preference is respected and
-the modal stays away).
-
-## Mouse: what works
+### Mouse, in detail
 
 Crossterm exposes the full mouse event stream — including
 `MouseEventKind::Moved` — so `tu` implements:
 
-* **Hover** — buttons brighten when the mouse passes over them; list
-  rows under the cursor get a subtle background tint.
-* **Press / Release** — pressing the mouse down latches a button into
-  its "pressed" colour. Releasing on the same button fires the
-  action; releasing off the button (cancel) just clears the latch.
-* **Click-to-focus** — clicking a button moves keyboard focus there
-  too, so Tab/arrow follow-ups feel coherent.
-* **Single vs. double click on the list** — a single click selects a
-  row without attaching; a double click within ~450 ms on the same
-  row attaches.
-* **Wheel** — scrolling moves the selection up/down in the session
-  list regardless of where the mouse is.
+- **Hover** — buttons brighten, list rows tint subtly.
+- **Press / release** — mousedown latches the *pressed* style;
+  release on the same widget fires the action, release off
+  cancels.
+- **Click-to-focus** — clicking a button also moves keyboard
+  focus there.
+- **Single vs. double click on the list** — a single click
+  selects a row without attaching; a double click within
+  ~450 ms on the same row attaches.
+- **Wheel** — scrolling moves the selection in the session
+  list regardless of where the cursor lives.
 
-If you don't see hover effects, your terminal probably isn't
-reporting mouse-motion events (xterm 1003 mode). Modern terminals —
-iTerm2, Alacritty, kitty, recent Apple Terminal, recent
-gnome-terminal — all do. Inside tmux, the `set -g mouse on` baseline
-above is what gets tmux to forward them, which is why the prompt
-offers to add it on first launch.
+Modern terminals (iTerm2, Alacritty, kitty, recent Apple
+Terminal / gnome-terminal) report motion events by default;
+inside tmux, the `set -g mouse on` baseline above is what gets
+them forwarded.
 
-## Tips
-
-- Want a hotkey to pop `tu` open? Bind it in your `~/.tmux.conf`:
-
-  ```tmux
-  bind-key -n F12 display-popup -E "tu"
-  ```
-
-## Layout
+## Repository layout
 
 ```
 src/
@@ -253,6 +263,66 @@ src/
 └── app.rs          # crossterm event loop + action dispatch
 ```
 
+## Building releases
+
+Cross-compiling to Linux from macOS uses
+[`cargo-zigbuild`](https://github.com/rust-cross/cargo-zigbuild)
+with `zig` as the C linker, so no Docker / Linux toolchain is
+required.
+
+```bash
+brew install zig
+cargo install --locked cargo-zigbuild cargo-deb cargo-generate-rpm
+
+rustup target add \
+  aarch64-apple-darwin x86_64-apple-darwin \
+  x86_64-unknown-linux-gnu x86_64-unknown-linux-musl \
+  aarch64-unknown-linux-gnu aarch64-unknown-linux-musl \
+  armv7-unknown-linux-gnueabihf
+
+# binaries
+cargo build --release --target aarch64-apple-darwin
+cargo build --release --target x86_64-apple-darwin
+cargo zigbuild --release --target x86_64-unknown-linux-gnu
+cargo zigbuild --release --target x86_64-unknown-linux-musl
+cargo zigbuild --release --target aarch64-unknown-linux-gnu
+cargo zigbuild --release --target aarch64-unknown-linux-musl
+cargo zigbuild --release --target armv7-unknown-linux-gnueabihf
+
+# packages
+cargo deb --target x86_64-unknown-linux-gnu --no-build
+cargo deb --target aarch64-unknown-linux-gnu --no-build
+cargo deb --target armv7-unknown-linux-gnueabihf --no-build
+cargo generate-rpm --target x86_64-unknown-linux-gnu
+cargo generate-rpm --target aarch64-unknown-linux-gnu
+```
+
+## Roadmap
+
+- [ ] Record a short WebP demo and embed it at the top of this
+      README.
+- [ ] Publish a real Homebrew tap (`homebrew-tu`) with bottles
+      per platform.
+- [ ] AUR + Arch Linux packaging.
+
+PRs welcome — see [Contributing](#contributing).
+
+## Contributing
+
+1. Fork, branch, commit with a conventional-commits style prefix
+   (`feat:`, `fix:`, `chore:`).
+2. Run `cargo fmt`, `cargo clippy --all-targets -- -D warnings`,
+   and `cargo test` before pushing.
+3. Open a PR against `main`. Small, scoped PRs are far easier
+   to land.
+
+The Python prototype (Textual) lives on the
+[`python-legacy`](https://github.com/hungryZoo/tu/tree/python-legacy)
+branch, tagged
+[`v0.9.0`](https://github.com/hungryZoo/tu/releases/tag/v0.9.0).
+It's frozen — bug-fix PRs there will be considered, but new
+features go into the Rust tree.
+
 ## License
 
-MIT
+[MIT](LICENSE) © hungryZoo

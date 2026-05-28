@@ -1,6 +1,6 @@
 [package]
 name = "tmuxui"
-version = "0.10.0"
+version = "1.0.0"
 edition = "2021"
 authors = ["hungryZoo <heonzoo.lee@gmail.com>"]
 description = "tu — a tiny tmux session menu. List, create, attach, detach, delete."
@@ -14,6 +14,47 @@ readme = "README.md"
 [[bin]]
 name = "tu"
 path = "src/main.rs"
+
+# --------------------------------------------------------------------
+# Distro packaging metadata.
+#
+# Both blocks share the same shape: name the binary `tu` (not the
+# crate name `tmuxui`), depend on `tmux` so the package manager
+# pulls it for you, and ship the binary + license + README under
+# the usual /usr paths.
+# --------------------------------------------------------------------
+
+[package.metadata.deb]
+name = "tu"
+maintainer = "hungryZoo <heonzoo.lee@gmail.com>"
+copyright = "2026, hungryZoo <heonzoo.lee@gmail.com>"
+license-file = ["LICENSE", "0"]
+extended-description = """\
+A tiny TUI menu on top of tmux. Lists, creates, attaches, detaches and
+deletes tmux sessions from a keyboard- and mouse-friendly menu so you
+don't have to memorise prefix-key gymnastics."""
+depends = "$auto, tmux"
+section = "utility"
+priority = "optional"
+assets = [
+    ["target/release/tu", "usr/bin/", "755"],
+    ["README.md", "usr/share/doc/tu/README", "644"],
+    ["LICENSE", "usr/share/doc/tu/LICENSE", "644"],
+]
+
+[package.metadata.generate-rpm]
+name = "tu"
+summary = "A tiny TUI menu on top of tmux"
+license = "MIT"
+url = "https://github.com/hungryZoo/tu"
+assets = [
+    { source = "target/release/tu", dest = "/usr/bin/tu", mode = "755" },
+    { source = "README.md", dest = "/usr/share/doc/tu/README", mode = "644" },
+    { source = "LICENSE", dest = "/usr/share/doc/tu/LICENSE", mode = "644" },
+]
+
+[package.metadata.generate-rpm.requires]
+tmux = "*"
 
 [dependencies]
 # We render with ratatui and drive the event loop ourselves on top of
