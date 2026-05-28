@@ -33,7 +33,11 @@ extended-description = """\
 A tiny TUI menu on top of tmux. Lists, creates, attaches, detaches and
 deletes tmux sessions from a keyboard- and mouse-friendly menu so you
 don't have to memorise prefix-key gymnastics."""
-depends = "$auto, tmux"
+# Cross-builds run on macOS, so dpkg-shlibdeps isn't available to
+# resolve $auto; rely on the static-friendly Rust runtime and our
+# explicit `tmux` dependency.
+depends = "tmux"
+revision = ""
 section = "utility"
 priority = "optional"
 assets = [
@@ -47,6 +51,9 @@ name = "tu"
 summary = "A tiny TUI menu on top of tmux"
 license = "MIT"
 url = "https://github.com/hungryZoo/tu"
+# Cross-build on macOS has no `ldd`; skip the auto-require step and
+# rely on the explicit `tmux` Requires entry below.
+auto-req = "disabled"
 assets = [
     { source = "target/release/tu", dest = "/usr/bin/tu", mode = "755" },
     { source = "README.md", dest = "/usr/share/doc/tu/README", mode = "644" },
