@@ -5,6 +5,12 @@ target/
 # Release packaging
 dist/
 
+# Raw screen recordings used to author the WebP demo; the rendered
+# assets (assets/demo.webp, assets/main.png) stay tracked.
+assets/*.mov
+assets/*.mp4
+assets/frames/
+
 # Stray Python toolchain droppings (kept for users still poking at the
 # python-legacy branch alongside this checkout)
 .venv/

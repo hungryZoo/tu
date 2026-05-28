@@ -11,6 +11,10 @@ List, create, attach, detach, or delete sessions — keyboard
 [![Platforms](https://img.shields.io/badge/platforms-macOS%20%C2%B7%20Linux%20%C2%B7%20Pi-a6e3a1?style=flat-square&labelColor=1e1e2e)](#install)
 [![Built with ratatui](https://img.shields.io/badge/built%20with-ratatui-fab387?style=flat-square&labelColor=1e1e2e)](https://github.com/ratatui-org/ratatui)
 
+<br/>
+
+<img src="assets/main.png" alt="tu running inside tmux, showing the session list and action buttons" width="780" />
+
 </div>
 
 ---
@@ -21,25 +25,11 @@ running `tmux` sessions. Pick one to attach, double-click to dive in,
 **Delete** to kill a session (with a confirmation). Run it inside
 tmux or from a fresh shell — it adapts.
 
-```
-+------------------------------------------------------------+
-|  tu                                  · inside tmux         |
-+------------------------------------------------------------+
-|  ◆ Sessions                                                |
-|------------------------------------------------------------|
-| ▶ work        3w  · attached                               |
-|   play        1w                                           |
-|   scratch     2w                                           |
-|                                                            |
-+------------------------------------------------------------+
-| [ New ] [ Attach ] [ Detach ] [ Quit ] [ Delete ]          |
-+------------------------------------------------------------+
-| n New  ·  a Attach  ·  d Detach  ·  q Quit  ·  del Delete  |
-+------------------------------------------------------------+
-```
+<div align="center">
 
-> A short demo (WebP) lands here once it's recorded — see
-> [Roadmap](#roadmap).
+<img src="assets/demo.webp" alt="tu demo: launch from parent shell, browse sessions, attach, then run tu again to detach back" width="780" />
+
+</div>
 
 ## Features
 
@@ -63,39 +53,50 @@ tmux or from a fresh shell — it adapts.
 
 ## Install
 
-### macOS — Homebrew (tap)
+### macOS — Homebrew tap
 
 ```bash
 brew tap hungryZoo/tu https://github.com/hungryZoo/tu
 brew install tu
 ```
 
-The same tap covers both Apple Silicon and Intel Macs; Homebrew
-picks the right bottle for you.
+The tap covers both Apple Silicon and Intel Macs; Homebrew picks
+the right binary for you.
 
 ### Linux — `.deb` (Debian, Ubuntu, Raspberry Pi OS, …)
 
+x86_64:
+
 ```bash
-# x86_64
 curl -LO https://github.com/hungryZoo/tu/releases/latest/download/tu_1.0.0_amd64.deb
 sudo dpkg -i tu_1.0.0_amd64.deb
+```
 
-# ARM64 (Pi 4/5 64-bit, AWS Graviton, …)
+ARM64 (Pi 4 / 5 in 64-bit OS, AWS Graviton, …):
+
+```bash
 curl -LO https://github.com/hungryZoo/tu/releases/latest/download/tu_1.0.0_arm64.deb
 sudo dpkg -i tu_1.0.0_arm64.deb
+```
 
-# ARMv7 (Pi 2/3/4/5 32-bit OS)
+ARMv7 (Pi 2 / 3 / 4 / 5 in 32-bit Raspberry Pi OS):
+
+```bash
 curl -LO https://github.com/hungryZoo/tu/releases/latest/download/tu_1.0.0_armhf.deb
 sudo dpkg -i tu_1.0.0_armhf.deb
 ```
 
 ### Linux — `.rpm` (Fedora, RHEL, CentOS, openSUSE, …)
 
-```bash
-# x86_64
-sudo rpm -i https://github.com/hungryZoo/tu/releases/latest/download/tu-1.0.0-1.x86_64.rpm
+x86_64:
 
-# ARM64
+```bash
+sudo rpm -i https://github.com/hungryZoo/tu/releases/latest/download/tu-1.0.0-1.x86_64.rpm
+```
+
+ARM64:
+
+```bash
 sudo rpm -i https://github.com/hungryZoo/tu/releases/latest/download/tu-1.0.0-1.aarch64.rpm
 ```
 
@@ -103,12 +104,14 @@ sudo rpm -i https://github.com/hungryZoo/tu/releases/latest/download/tu-1.0.0-1.
 
 Grab the archive matching your platform from the
 [latest release](https://github.com/hungryZoo/tu/releases/latest),
-unpack it, drop the binary somewhere on `PATH`:
+unpack it, drop the binary on `PATH`:
 
 ```bash
 tar -xzf tu-1.0.0-<triple>.tar.gz
 sudo install -m 0755 tu /usr/local/bin/tu
 ```
+
+Triples available:
 
 | Triple                          | Use it for                                      |
 | ------------------------------- | ----------------------------------------------- |
@@ -126,7 +129,7 @@ sudo install -m 0755 tu /usr/local/bin/tu
 ### Verifying
 
 Every release ships a `SHA256SUMS` file. After downloading any
-asset:
+asset, run:
 
 ```bash
 shasum -a 256 -c SHA256SUMS --ignore-missing
@@ -137,25 +140,31 @@ shasum -a 256 -c SHA256SUMS --ignore-missing
 ```bash
 git clone https://github.com/hungryZoo/tu.git
 cd tu
-cargo install --path .          # drops `tu` into ~/.cargo/bin
+cargo install --path .
 ```
 
-Requires Rust 1.78 +. `cargo test` runs ~40 unit tests.
+That drops `tu` into `~/.cargo/bin`. Requires Rust 1.78+;
+`cargo test` runs ~40 unit tests.
 
 ## Quickstart
 
+Just run it. `tu` figures out whether you're inside tmux:
+
 ```bash
-tu                # outside tmux → pick / create → execvp into tmux
-tu                # inside tmux  → pick (switch-client) / detach
+tu
 ```
 
-Optional, but very nice — bind a hotkey in `~/.tmux.conf`:
+- **Outside tmux** → pick a session (or create one) and the shell
+  hands itself over to `tmux attach-session`.
+- **Inside tmux**  → pick a session (`switch-client`) or
+  press **d** / click **Detach** to return to the parent shell.
+
+Optional, but very nice — bind a hotkey in `~/.tmux.conf` so
+`F12` pops `tu` over your work from any pane:
 
 ```tmux
 bind-key -n F12 display-popup -E "tu"
 ```
-
-Now F12 from any pane pops `tu` over your work.
 
 ## Behavior
 
@@ -270,46 +279,39 @@ Cross-compiling to Linux from macOS uses
 with `zig` as the C linker, so no Docker / Linux toolchain is
 required.
 
+One-time toolchain setup:
+
 ```bash
 brew install zig
 cargo install --locked cargo-zigbuild cargo-deb cargo-generate-rpm
-
 rustup target add \
   aarch64-apple-darwin x86_64-apple-darwin \
   x86_64-unknown-linux-gnu x86_64-unknown-linux-musl \
   aarch64-unknown-linux-gnu aarch64-unknown-linux-musl \
   armv7-unknown-linux-gnueabihf
+```
 
-# binaries
-cargo build --release --target aarch64-apple-darwin
-cargo build --release --target x86_64-apple-darwin
-cargo zigbuild --release --target x86_64-unknown-linux-gnu
-cargo zigbuild --release --target x86_64-unknown-linux-musl
-cargo zigbuild --release --target aarch64-unknown-linux-gnu
-cargo zigbuild --release --target aarch64-unknown-linux-musl
-cargo zigbuild --release --target armv7-unknown-linux-gnueabihf
+Build every binary, then package tarballs + `.deb` + `.rpm` +
+`SHA256SUMS` into `dist/`:
 
-# packages
-cargo deb --target x86_64-unknown-linux-gnu --no-build
-cargo deb --target aarch64-unknown-linux-gnu --no-build
-cargo deb --target armv7-unknown-linux-gnueabihf --no-build
-cargo generate-rpm --target x86_64-unknown-linux-gnu
-cargo generate-rpm --target aarch64-unknown-linux-gnu
+```bash
+bash scripts/build-all.sh
+bash scripts/package-all.sh
 ```
 
 ## Roadmap
 
-- [ ] Record a short WebP demo and embed it at the top of this
-      README.
-- [ ] Publish a real Homebrew tap (`homebrew-tu`) with bottles
-      per platform.
+- [ ] Publish a proper Homebrew tap repo (`hungryZoo/homebrew-tu`)
+      with bottles per platform.
 - [ ] AUR + Arch Linux packaging.
+- [ ] Self-hosted apt repo on GitHub Pages so `apt install tu`
+      works on Debian / Raspberry Pi OS.
 
 PRs welcome — see [Contributing](#contributing).
 
 ## Contributing
 
-1. Fork, branch, commit with a conventional-commits style prefix
+1. Fork, branch, commit with a conventional-commits prefix
    (`feat:`, `fix:`, `chore:`).
 2. Run `cargo fmt`, `cargo clippy --all-targets -- -D warnings`,
    and `cargo test` before pushing.
