@@ -6,10 +6,18 @@
 //! [`crate::app`] — keeping them out of this module makes the state
 //! machine straightforward to reason about and unit-test.
 
+use std::time::{Duration, Instant};
+
 use ratatui::layout::{Position, Rect};
 
 use crate::conf_setup::Directive;
 use crate::models::Session;
+
+/// Two clicks on the *same* hit target within this window count as a
+/// double-click. 450 ms matches macOS' default Finder threshold and
+/// is long enough for keyboards-with-trackpads but short enough that
+/// genuine separate clicks don't accidentally merge.
+pub const DOUBLE_CLICK_THRESHOLD: Duration = Duration::from_millis(450);
 
 /// Five clickable buttons across the bottom of the main view.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -91,6 +99,12 @@ pub enum Screen {
         directives: Vec<Directive>,
         focus: ConfFocus,
     },
+    /// Single-button acknowledge dialog shown after a successful
+    /// `~/.tmux.conf` patch. Closing it exits `tu` so the user's
+    /// next shell sees the freshly-applied tmux options.
+    RestartNotice {
+        message: String,
+    },
 }
 
 /// Anything the mouse can land on. Stored under `state.hover` and
@@ -122,6 +136,15 @@ pub struct Geometry {
     pub modal_secondary: Option<Rect>,
 }
 
+/// Remembers the previous click so the next one can be classified as
+/// a double-click. Cleared on every double so a third click in a row
+/// isn't itself doubled with the second.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ClickRecord {
+    pub target: HitTarget,
+    pub at: Instant,
+}
+
 #[derive(Debug, Default)]
 pub struct AppState {
     pub inside_tmux: bool,
@@ -133,6 +156,7 @@ pub struct AppState {
     pub focus: Focus,
     pub hover: Option<HitTarget>,
     pub pressed: Option<HitTarget>,
+    pub last_click: Option<ClickRecord>,
 
     pub geom: Geometry,
 
@@ -280,6 +304,22 @@ impl AppState {
         self.pressed = None;
     }
 
+    /// Record a click and report whether it forms a double-click with
+    /// the previous one. On a confirmed double-click we forget the
+    /// history so a third click doesn't get re-paired with the second.
+    pub fn detect_and_record_click(&mut self, target: HitTarget, now: Instant) -> bool {
+        let is_double = self
+            .last_click
+            .map(|c| c.target == target && now.duration_since(c.at) < DOUBLE_CLICK_THRESHOLD)
+            .unwrap_or(false);
+        if is_double {
+            self.last_click = None;
+        } else {
+            self.last_click = Some(ClickRecord { target, at: now });
+        }
+        is_double
+    }
+
     pub fn ensure_list_offset(&mut self, visible_rows: u16) {
         if visible_rows == 0 || self.sessions.is_empty() {
             self.list_offset = 0;
@@ -407,6 +447,53 @@ mod tests {
         assert_eq!(st.hit_test(2, 1), None);
         assert_eq!(st.hit_test(22, 11), Some(HitTarget::ModalPrimary));
         assert_eq!(st.hit_test(32, 11), Some(HitTarget::ModalSecondary));
+    }
+
+    #[test]
+    fn first_click_on_a_target_is_single() {
+        let mut s = AppState::new(false);
+        let t = Instant::now();
+        assert!(!s.detect_and_record_click(HitTarget::ListRow(0), t));
+    }
+
+    #[test]
+    fn second_click_on_same_target_within_threshold_is_double() {
+        let mut s = AppState::new(false);
+        let t = Instant::now();
+        s.detect_and_record_click(HitTarget::ListRow(0), t);
+        let later = t + Duration::from_millis(200);
+        assert!(s.detect_and_record_click(HitTarget::ListRow(0), later));
+    }
+
+    #[test]
+    fn second_click_after_threshold_is_single() {
+        let mut s = AppState::new(false);
+        let t = Instant::now();
+        s.detect_and_record_click(HitTarget::ListRow(0), t);
+        let much_later = t + Duration::from_millis(800);
+        assert!(!s.detect_and_record_click(HitTarget::ListRow(0), much_later));
+    }
+
+    #[test]
+    fn second_click_on_different_target_is_single() {
+        let mut s = AppState::new(false);
+        let t = Instant::now();
+        s.detect_and_record_click(HitTarget::ListRow(0), t);
+        let later = t + Duration::from_millis(100);
+        assert!(!s.detect_and_record_click(HitTarget::ListRow(1), later));
+    }
+
+    #[test]
+    fn triple_click_does_not_double_again() {
+        // Down x3 in quick succession should fire one double (clicks 1+2)
+        // and then a single (click 3), not back-to-back doubles.
+        let mut s = AppState::new(false);
+        let t = Instant::now();
+        s.detect_and_record_click(HitTarget::ListRow(0), t);
+        let r2 = s.detect_and_record_click(HitTarget::ListRow(0), t + Duration::from_millis(120));
+        let r3 = s.detect_and_record_click(HitTarget::ListRow(0), t + Duration::from_millis(240));
+        assert!(r2);
+        assert!(!r3);
     }
 
     #[test]

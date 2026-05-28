@@ -123,6 +123,7 @@ fn handle_key(state: &mut AppState, key: KeyEvent) {
         Screen::Main => handle_key_main(state, key),
         Screen::ConfirmDelete { name, focus } => handle_key_delete(state, key, name, focus),
         Screen::ConfSetup { focus, .. } => handle_key_conf(state, key, focus),
+        Screen::RestartNotice { .. } => handle_key_notice(state, key),
     }
 }
 
@@ -179,6 +180,18 @@ fn handle_key_delete(state: &mut AppState, key: KeyEvent, name: String, focus: D
             DeleteFocus::Cancel => dismiss_modal(state),
             DeleteFocus::Confirm => confirm_delete(state, &name),
         },
+        _ => {}
+    }
+}
+
+fn handle_key_notice(state: &mut AppState, key: KeyEvent) {
+    // The restart notice has a single OK button. Treat Enter / Esc / q
+    // as confirmations; ignore everything else so a stray keystroke
+    // doesn't quietly drop the user back to a stale UI.
+    match key.code {
+        KeyCode::Enter | KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char(' ') => {
+            state.should_exit = true;
+        }
         _ => {}
     }
 }
@@ -270,8 +283,16 @@ fn trigger_hit(state: &mut AppState, target: HitTarget) {
     match (screen, target) {
         (Screen::Main, HitTarget::Button(b)) => activate_main_button(state, b),
         (Screen::Main, HitTarget::ListRow(idx)) => {
+            // First click: just select. Second click on the *same*
+            // row within the double-click window: attach. This matches
+            // the file-manager idiom users already expect and lets
+            // them inspect a session in the list without immediately
+            // diving in.
             state.selected = idx;
-            action_attach_selected(state);
+            let is_double = state.detect_and_record_click(HitTarget::ListRow(idx), Instant::now());
+            if is_double {
+                action_attach_selected(state);
+            }
         }
         (Screen::ConfirmDelete { .. }, HitTarget::ModalPrimary) => dismiss_modal(state),
         (Screen::ConfirmDelete { name, .. }, HitTarget::ModalSecondary) => {
@@ -279,6 +300,9 @@ fn trigger_hit(state: &mut AppState, target: HitTarget) {
         }
         (Screen::ConfSetup { .. }, HitTarget::ModalPrimary) => apply_conf_modal(state),
         (Screen::ConfSetup { .. }, HitTarget::ModalSecondary) => dismiss_modal(state),
+        (Screen::RestartNotice { .. }, HitTarget::ModalPrimary) => {
+            state.should_exit = true;
+        }
         _ => {}
     }
 }
@@ -427,18 +451,23 @@ fn apply_conf_modal(state: &mut AppState) {
     match conf_setup::append_directives(&directives, &conf) {
         Ok(()) => {
             let applied = conf_setup::apply_directives_to_server(&directives);
-            let names: Vec<&str> = directives.iter().map(|d| d.option.as_str()).collect();
-            let tail = if applied {
-                " · live tmux server updated"
+            let names: Vec<String> = directives.iter().map(|d| d.option.clone()).collect();
+            let server_line = if applied {
+                "We also pushed the new options to the running tmux server."
             } else {
-                " · will take effect on next tmux start"
+                "They will take effect the next time tmux starts."
             };
+            let message = format!(
+                "Patched ~/.tmux.conf with {}.\n\n{}\n\ntu needs a fresh start so it picks up the\nnew defaults.",
+                names.join(", "),
+                server_line
+            );
             state.set_info(format!(
-                "Appended {} to {}{tail}",
+                "Appended {} to {}.",
                 names.join(", "),
                 conf.display()
             ));
-            state.screen = Screen::Main;
+            state.screen = Screen::RestartNotice { message };
         }
         Err(e) => {
             state.set_error(format!("Failed to update ~/.tmux.conf: {e}"));
@@ -595,5 +624,78 @@ mod tests {
         activate_main_button(&mut s, ButtonId::Attach);
         assert!(!s.should_exit);
         assert!(s.status_message.contains("No session"));
+    }
+
+    fn key(code: KeyCode) -> KeyEvent {
+        KeyEvent {
+            code,
+            modifiers: KeyModifiers::empty(),
+            kind: KeyEventKind::Press,
+            state: crossterm::event::KeyEventState::empty(),
+        }
+    }
+
+    #[test]
+    fn enter_on_restart_notice_exits_tu() {
+        let mut s = make_state(false, &[]);
+        s.screen = Screen::RestartNotice {
+            message: "test".into(),
+        };
+        handle_key(&mut s, key(KeyCode::Enter));
+        assert!(s.should_exit);
+    }
+
+    #[test]
+    fn restart_notice_ignores_unrelated_keys() {
+        let mut s = make_state(false, &[]);
+        s.screen = Screen::RestartNotice {
+            message: "test".into(),
+        };
+        handle_key(&mut s, key(KeyCode::Char('x')));
+        assert!(!s.should_exit);
+        assert!(matches!(s.screen, Screen::RestartNotice { .. }));
+    }
+
+    #[test]
+    fn clicking_ok_on_restart_notice_exits_tu() {
+        let mut s = make_state(false, &[]);
+        s.screen = Screen::RestartNotice {
+            message: "ok".into(),
+        };
+        trigger_hit(&mut s, HitTarget::ModalPrimary);
+        assert!(s.should_exit);
+    }
+
+    #[test]
+    fn first_click_on_list_row_only_selects() {
+        // Simulating the body of `trigger_hit` for ListRow so we
+        // don't depend on the wall-clock inside it.
+        let mut s = make_state(false, &["work", "play"]);
+        let idx = 1;
+        let now = Instant::now();
+        s.selected = idx;
+        let is_double = s.detect_and_record_click(HitTarget::ListRow(idx), now);
+        assert!(!is_double);
+        assert_eq!(s.selected, idx);
+        assert!(!s.should_exit);
+        assert!(s.post_exit_argv.is_none());
+    }
+
+    #[test]
+    fn double_click_on_list_row_attaches() {
+        let mut s = make_state(false, &["work", "play"]);
+        let idx = 1;
+        let t = Instant::now();
+        s.selected = idx;
+        let _ = s.detect_and_record_click(HitTarget::ListRow(idx), t);
+        let is_double =
+            s.detect_and_record_click(HitTarget::ListRow(idx), t + Duration::from_millis(150));
+        assert!(is_double);
+        if is_double {
+            action_attach_selected(&mut s);
+        }
+        assert!(s.should_exit);
+        let argv = s.post_exit_argv.as_ref().expect("expected attach argv");
+        assert_eq!(argv.last().map(String::as_str), Some("play"));
     }
 }
