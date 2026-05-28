@@ -3,7 +3,7 @@
 //! anything else.
 
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Margin, Rect};
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::Color;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use ratatui::Frame;
@@ -11,23 +11,19 @@ use ratatui::Frame;
 use crate::state::{
     AppState, ButtonId, ConfFocus, DeleteFocus, Focus, HitTarget, Screen, StatusKind, BUTTON_ORDER,
 };
-use crate::theme::{self, ButtonVariant, ButtonVisual};
+use crate::theme::{self, palette, ButtonVisual};
 
 pub fn render(f: &mut Frame, state: &mut AppState) {
     let area = f.area();
 
+    // Window — outer border + opaque Base background so the colour
+    // story owns the whole frame regardless of the user's terminal
+    // theme.
     let outer = Block::new()
         .borders(Borders::ALL)
         .border_style(theme::outer_border_style(state.inside_tmux))
-        .title(Span::styled(
-            format!(
-                " tu — {} tmux ",
-                if state.inside_tmux { "in" } else { "outside" }
-            ),
-            Style::default()
-                .fg(Color::White)
-                .add_modifier(Modifier::BOLD),
-        ));
+        .style(theme::window_bg())
+        .title(build_window_title(state.inside_tmux));
     let inner = outer.inner(area);
     f.render_widget(outer, area);
 
@@ -54,7 +50,7 @@ pub fn render(f: &mut Frame, state: &mut AppState) {
     render_hint(f, chunks[4]);
     render_status(f, chunks[5], state);
 
-    // Snapshot the modal data before passing &mut state to render
+    // Snapshot modal data before passing `&mut state` to render
     // helpers — keeps the borrow checker happy.
     let modal = match &state.screen {
         Screen::Main => None,
@@ -66,10 +62,6 @@ pub fn render(f: &mut Frame, state: &mut AppState) {
     };
 
     if let Some(snap) = modal {
-        // Clear geometry from the main view so hit-testing while a
-        // modal is up doesn't accidentally land on a button beneath.
-        // (`hit_test` already short-circuits on non-Main screens, but
-        // belt-and-braces.)
         match snap {
             ModalSnapshot::Delete(name, focus) => {
                 render_confirm_delete(f, area, state, &name, focus);
@@ -89,32 +81,41 @@ enum ModalSnapshot {
     Conf(Vec<String>, ConfFocus),
 }
 
-// -------------------------------------------------------- sections
+// -------------------------------------------------------- window title
+
+fn build_window_title(inside_tmux: bool) -> Line<'static> {
+    let mode = if inside_tmux {
+        "inside tmux"
+    } else {
+        "outside tmux"
+    };
+    Line::from(vec![
+        Span::styled(" tu ", theme::title_brand_style()),
+        Span::styled(" · ", theme::title_separator_style()),
+        Span::styled(format!("{mode} "), theme::title_mode_style(inside_tmux)),
+    ])
+}
+
+// -------------------------------------------------------- section
 
 fn render_section_label(f: &mut Frame, area: Rect) {
-    let label = Paragraph::new(Span::styled(
-        "Sessions",
-        Style::default()
-            .fg(Color::Gray)
-            .add_modifier(Modifier::BOLD),
-    ));
+    let label = Paragraph::new(Line::from(vec![
+        Span::styled("◆ ", theme::section_marker_style()),
+        Span::styled("Sessions", theme::section_label_style()),
+    ]))
+    .style(theme::window_bg());
     f.render_widget(label, area);
 }
+
+// -------------------------------------------------------- session list
 
 fn render_session_list(f: &mut Frame, area: Rect, state: &mut AppState) {
     let list_focused = matches!(state.focus, Focus::List);
 
-    let border_style = if list_focused {
-        Style::default()
-            .fg(Color::Cyan)
-            .add_modifier(Modifier::BOLD)
-    } else {
-        Style::default().fg(Color::DarkGray)
-    };
-
     let block = Block::new()
         .borders(Borders::ALL)
-        .border_style(border_style);
+        .border_style(theme::list_block_border_style(list_focused))
+        .style(theme::window_bg());
     let inner = block.inner(area);
     f.render_widget(block, area);
     state.geom.list_inner = Some(inner);
@@ -123,7 +124,7 @@ fn render_session_list(f: &mut Frame, area: Rect, state: &mut AppState) {
 
     if state.sessions.is_empty() {
         let empty = Paragraph::new("No tmux sessions yet — press n to create one.")
-            .style(theme::hint_style())
+            .style(theme::list_empty_style())
             .alignment(Alignment::Center);
         f.render_widget(empty, inner);
         return;
@@ -157,11 +158,12 @@ fn render_session_list(f: &mut Frame, area: Rect, state: &mut AppState) {
         } else if is_hovered {
             theme::list_hover_style()
         } else {
-            Style::default()
+            theme::list_row_default_style()
         };
 
         let prefix = if is_selected { "▶ " } else { "  " };
-        let spans = if is_selected || is_hovered {
+        let spans: Vec<Span<'static>> = if is_selected || is_hovered {
+            // Uniform row style — keeps the highlight bar clean.
             let attached = if session.attached { " · attached" } else { "" };
             vec![Span::raw(format!(
                 "{}{:width$}  {:>3}w{}",
@@ -172,23 +174,26 @@ fn render_session_list(f: &mut Frame, area: Rect, state: &mut AppState) {
                 width = max_name
             ))]
         } else {
-            let mut spans = vec![
-                Span::raw(prefix.to_string()),
-                Span::raw(format!("{:width$}", session.name, width = max_name)),
-                Span::raw("  "),
+            let mut s = vec![
+                Span::styled(prefix.to_string(), theme::list_row_default_style()),
+                Span::styled(
+                    format!("{:width$}", session.name, width = max_name),
+                    theme::list_row_default_style(),
+                ),
+                Span::styled("  ", theme::list_row_default_style()),
                 Span::styled(
                     format!("{:>3}w", session.windows),
-                    Style::default().fg(Color::DarkGray),
+                    theme::list_row_dim_style(),
                 ),
             ];
             if session.attached {
-                spans.push(Span::raw("  "));
-                spans.push(Span::styled(
+                s.push(Span::styled("  ", theme::list_row_default_style()));
+                s.push(Span::styled(
                     "● attached",
                     theme::list_attached_marker_style(),
                 ));
             }
-            spans
+            s
         };
 
         let para = Paragraph::new(Line::from(spans)).style(row_style);
@@ -202,7 +207,7 @@ fn render_buttons(f: &mut Frame, area: Rect, state: &mut AppState) {
     let spacer: u16 = 2;
     let widths: Vec<u16> = BUTTON_ORDER
         .iter()
-        .map(|b| (b.label().chars().count() as u16) + 4) // 2 borders + 2 padding
+        .map(|b| (b.label().chars().count() as u16) + 4)
         .collect();
 
     let total: u16 = widths.iter().sum::<u16>() + spacer * (BUTTON_ORDER.len() as u16 - 1);
@@ -221,14 +226,17 @@ fn render_buttons(f: &mut Frame, area: Rect, state: &mut AppState) {
         }
         let rect = Rect::new(x, area.y, w, area.height);
         state.geom.buttons[i] = Some(rect);
-        render_main_button(f, rect, state, *button);
+        let visual = button_visual(state, *button);
+        render_styled_button(
+            f,
+            rect,
+            button.label(),
+            button.accent(),
+            visual,
+            ButtonContext::Main,
+        );
         x += widths[i] + spacer;
     }
-}
-
-fn render_main_button(f: &mut Frame, area: Rect, state: &AppState, button: ButtonId) {
-    let visual = button_visual(state, button);
-    render_styled_button(f, area, button.label(), button.variant(), visual);
 }
 
 fn button_visual(state: &AppState, button: ButtonId) -> ButtonVisual {
@@ -255,18 +263,30 @@ fn button_enabled(state: &AppState, button: ButtonId) -> bool {
     }
 }
 
+#[derive(Clone, Copy)]
+enum ButtonContext {
+    /// Sits on the Base-coloured window background.
+    Main,
+    /// Sits on the Crust-coloured modal background.
+    Modal,
+}
+
 fn render_styled_button(
     f: &mut Frame,
     area: Rect,
     label: &str,
-    variant: ButtonVariant,
+    accent: Color,
     visual: ButtonVisual,
+    context: ButtonContext,
 ) {
-    let style = theme::button_style(variant, visual);
+    let style = match context {
+        ButtonContext::Main => theme::button_style(accent, visual),
+        ButtonContext::Modal => theme::modal_button_style(accent, visual),
+    };
     let block = Block::new()
         .borders(Borders::ALL)
         .border_style(style.border)
-        .style(style.label);
+        .style(style.fill);
     let inner = block.inner(area);
     f.render_widget(block, area);
 
@@ -279,32 +299,36 @@ fn render_styled_button(
 // ---------------------------------------------------- hint + status
 
 fn render_hint(f: &mut Frame, area: Rect) {
+    let separator = || Span::styled("  ·  ", theme::hint_text_style());
+    let key = |s: &'static str| Span::styled(s, theme::hint_key_style());
+    let word = |s: &'static str| Span::styled(s, theme::hint_text_style());
     let line = Line::from(vec![
-        Span::styled("n", bold()),
-        Span::raw(" New  "),
-        Span::styled("a", bold()),
-        Span::raw(" Attach  "),
-        Span::styled("d", bold()),
-        Span::raw(" Detach  "),
-        Span::styled("q", bold()),
-        Span::raw(" Quit  "),
-        Span::styled("del", bold()),
-        Span::raw(" Delete  "),
-        Span::styled("↑↓", bold()),
-        Span::raw(" Nav  "),
-        Span::styled("Tab", bold()),
-        Span::raw(" Focus  "),
-        Span::styled("Enter", bold()),
-        Span::raw(" Attach"),
+        key("n"),
+        word(" New"),
+        separator(),
+        key("a"),
+        word(" Attach"),
+        separator(),
+        key("d"),
+        word(" Detach"),
+        separator(),
+        key("q"),
+        word(" Quit"),
+        separator(),
+        key("del"),
+        word(" Delete"),
+        separator(),
+        key("↑↓"),
+        word(" Nav"),
+        separator(),
+        key("Tab"),
+        word(" Focus"),
+        separator(),
+        key("Enter"),
+        word(" Attach"),
     ]);
-    let p = Paragraph::new(line).style(theme::hint_style());
+    let p = Paragraph::new(line).style(theme::hint_text_style());
     f.render_widget(p, area);
-}
-
-fn bold() -> Style {
-    Style::default()
-        .fg(Color::Gray)
-        .add_modifier(Modifier::BOLD)
 }
 
 fn render_status(f: &mut Frame, area: Rect, state: &AppState) {
@@ -328,10 +352,13 @@ fn render_confirm_delete(
     let title = format!(" Delete session '{}' ", name);
     let body = vec![
         Line::from(""),
-        Line::from(format!("Really delete session '{}'?", name)),
+        Line::from(Span::styled(
+            format!("Really delete session '{}'?", name),
+            theme::modal_body_style(),
+        )),
         Line::from(Span::styled(
             "This cannot be undone.",
-            Style::default().fg(Color::DarkGray),
+            theme::modal_subtle_style(),
         )),
     ];
     render_modal(
@@ -340,8 +367,8 @@ fn render_confirm_delete(
         state,
         &title,
         body,
-        ("Back", ButtonVariant::Default),
-        ("Delete", ButtonVariant::Danger),
+        ("Back", palette::SAPPHIRE),
+        ("Delete", palette::RED),
         matches!(focus, DeleteFocus::Cancel),
         matches!(focus, DeleteFocus::Confirm),
     );
@@ -357,36 +384,32 @@ fn render_conf_setup(
     let title = " ~/.tmux.conf ".to_string();
     let mut body = vec![
         Line::from(""),
-        Line::from("Add the following to your ~/.tmux.conf?"),
+        Line::from(Span::styled(
+            "Add the following to your ~/.tmux.conf?",
+            theme::modal_body_style(),
+        )),
         Line::from(""),
     ];
     for line in directive_lines {
         body.push(Line::from(Span::styled(
             format!("  {line}"),
-            Style::default()
-                .fg(Color::Yellow)
-                .add_modifier(Modifier::BOLD),
+            theme::modal_directive_style(),
         )));
     }
     body.push(Line::from(""));
     body.push(Line::from(Span::styled(
         "We'll patch the live tmux server too.",
-        Style::default().fg(Color::DarkGray),
+        theme::modal_subtle_style(),
     )));
 
-    // "Yes" is the action button (Danger variant for emphasis would
-    // be wrong here — it's a helpful change), so we render it with
-    // the default variant but mark it Focused/Pressed normally.
     render_modal(
         f,
         area,
         state,
         &title,
         body,
-        ("Yes, add (y)", ButtonVariant::Default),
-        ("Later (n)", ButtonVariant::Grey),
-        // "Yes" is the primary (the user opened tu, presumably they
-        // want a saner default) — so it is the focus default.
+        ("Yes, add (y)", palette::GREEN),
+        ("Later (n)", palette::OVERLAY1),
         matches!(focus, ConfFocus::Yes),
         matches!(focus, ConfFocus::Later),
     );
@@ -399,8 +422,8 @@ fn render_modal(
     state: &mut AppState,
     title: &str,
     body: Vec<Line>,
-    primary_btn: (&str, ButtonVariant),
-    secondary_btn: (&str, ButtonVariant),
+    primary_btn: (&str, Color),
+    secondary_btn: (&str, Color),
     primary_focused: bool,
     secondary_focused: bool,
 ) {
@@ -414,12 +437,8 @@ fn render_modal(
     let block = Block::new()
         .borders(Borders::ALL)
         .border_style(theme::modal_border_style())
-        .title(Span::styled(
-            title.to_string(),
-            Style::default()
-                .fg(Color::Yellow)
-                .add_modifier(Modifier::BOLD),
-        ));
+        .style(theme::modal_bg())
+        .title(Span::styled(title.to_string(), theme::modal_title_style()));
     let inner = block.inner(modal_area);
     f.render_widget(block, modal_area);
 
@@ -429,10 +448,12 @@ fn render_modal(
         .constraints([Constraint::Min(2), Constraint::Length(3)])
         .split(inner);
 
-    let body_para = Paragraph::new(body).alignment(Alignment::Center);
+    let body_para = Paragraph::new(body)
+        .alignment(Alignment::Center)
+        .style(theme::modal_bg());
     f.render_widget(body_para, layout[0]);
 
-    // -------- buttons row inside the modal --------
+    // ---- buttons row inside the modal ----
     let pw = (primary_btn.0.chars().count() as u16) + 4;
     let sw = (secondary_btn.0.chars().count() as u16) + 4;
     let spacer: u16 = 3;
@@ -454,6 +475,7 @@ fn render_modal(
         primary_btn.0,
         primary_btn.1,
         primary_visual,
+        ButtonContext::Modal,
     );
     render_styled_button(
         f,
@@ -461,6 +483,7 @@ fn render_modal(
         secondary_btn.0,
         secondary_btn.1,
         secondary_visual,
+        ButtonContext::Modal,
     );
 }
 
