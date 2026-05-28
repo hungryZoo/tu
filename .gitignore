@@ -1,32 +1,17 @@
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-MANIFEST
+# Rust build artefacts
+target/
+**/*.rs.bk
 
-# Virtual envs / package manager
+# Release packaging
+dist/
+
+# Stray Python toolchain droppings (kept for users still poking at the
+# python-legacy branch alongside this checkout)
 .venv/
-venv/
-env/
-ENV/
-.uv/
+.pytest_cache/
+.ruff_cache/
+__pycache__/
+uv.lock
 
 # Editors / OS
 .vscode/
@@ -34,14 +19,6 @@ ENV/
 *.swp
 *~
 .DS_Store
-
-# Test / coverage
-.pytest_cache/
-.coverage
-htmlcov/
-.tox/
-.mypy_cache/
-.ruff_cache/
 
 # Project local
 .cursor/
