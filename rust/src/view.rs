@@ -59,6 +59,7 @@ pub fn render(f: &mut Frame, state: &mut AppState) {
             let lines: Vec<String> = directives.iter().map(|d| d.line()).collect();
             Some(ModalSnapshot::Conf(lines, *focus))
         }
+        Screen::RestartNotice { message } => Some(ModalSnapshot::Notice(message.clone())),
     };
 
     if let Some(snap) = modal {
@@ -68,6 +69,9 @@ pub fn render(f: &mut Frame, state: &mut AppState) {
             }
             ModalSnapshot::Conf(lines, focus) => {
                 render_conf_setup(f, area, state, &lines, focus);
+            }
+            ModalSnapshot::Notice(message) => {
+                render_restart_notice(f, area, state, &message);
             }
         }
     } else {
@@ -79,6 +83,7 @@ pub fn render(f: &mut Frame, state: &mut AppState) {
 enum ModalSnapshot {
     Delete(String, DeleteFocus),
     Conf(Vec<String>, ConfFocus),
+    Notice(String),
 }
 
 // -------------------------------------------------------- window title
@@ -412,6 +417,71 @@ fn render_conf_setup(
         ("Later (n)", palette::OVERLAY1),
         matches!(focus, ConfFocus::Yes),
         matches!(focus, ConfFocus::Later),
+    );
+}
+
+fn render_restart_notice(f: &mut Frame, area: Rect, state: &mut AppState, message: &str) {
+    let title = " All set — restart tu ".to_string();
+    let mut body = vec![Line::from("")];
+    for paragraph in message.split("\n\n") {
+        for line in paragraph.lines() {
+            body.push(Line::from(Span::styled(
+                line.to_string(),
+                theme::modal_body_style(),
+            )));
+        }
+        body.push(Line::from(""));
+    }
+    body.push(Line::from(Span::styled(
+        "Press Enter to quit, then run `tu` again.",
+        theme::modal_subtle_style(),
+    )));
+
+    let widest_line = body.iter().map(|l| l.width() as u16).max().unwrap_or(40);
+    let width = widest_line.max(48).min(area.width.saturating_sub(4));
+    let height = (body.len() as u16 + 6).min(area.height.saturating_sub(2));
+    let modal_area = centered_rect(width + 4, height, area);
+
+    f.render_widget(Clear, modal_area);
+
+    let block = Block::new()
+        .borders(Borders::ALL)
+        .border_style(theme::modal_border_style())
+        .style(theme::modal_bg())
+        .title(Span::styled(title, theme::modal_title_style()));
+    let inner = block.inner(modal_area);
+    f.render_widget(block, modal_area);
+
+    let layout = Layout::default()
+        .direction(Direction::Vertical)
+        .margin(1)
+        .constraints([Constraint::Min(2), Constraint::Length(3)])
+        .split(inner);
+
+    let body_para = Paragraph::new(body)
+        .alignment(Alignment::Center)
+        .style(theme::modal_bg());
+    f.render_widget(body_para, layout[0]);
+
+    let label = "OK (Enter)";
+    let bw = (label.chars().count() as u16) + 4;
+    let row = layout[1];
+    let start_x = row.x + row.width.saturating_sub(bw) / 2;
+    let btn_rect = Rect::new(start_x, row.y, bw, row.height);
+
+    // Only one button: store as `modal_primary`, clear `modal_secondary`
+    // so a stray click on the (now non-existent) right button does nothing.
+    state.geom.modal_primary = Some(btn_rect);
+    state.geom.modal_secondary = None;
+
+    let visual = modal_button_visual(state, HitTarget::ModalPrimary, true);
+    render_styled_button(
+        f,
+        btn_rect,
+        label,
+        palette::GREEN,
+        visual,
+        ButtonContext::Modal,
     );
 }
 
