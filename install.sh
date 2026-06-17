@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/sh
 # Install tu to ~/.local/bin (or $TU_INSTALL_DIR) — no sudo required.
 #
 #   curl -fsSL https://raw.githubusercontent.com/hungryZoo/tu/main/install.sh | sh
@@ -6,7 +6,7 @@
 # Environment:
 #   TU_VERSION=1.0.0     pin a release (default: latest on GitHub)
 #   TU_INSTALL_DIR=...   install directory (default: ~/.local/bin)
-set -euo pipefail
+set -eu
 
 REPO="hungryZoo/tu"
 DEFAULT_BIN_DIR="${HOME}/.local/bin"
@@ -15,12 +15,20 @@ VERSION="${TU_VERSION:-}"
 _TMP_DIR=""
 
 cleanup() {
-    [[ -n "$_TMP_DIR" && -d "$_TMP_DIR" ]] && rm -rf "$_TMP_DIR"
+    if [ -n "$_TMP_DIR" ] && [ -d "$_TMP_DIR" ]; then
+        rm -rf "$_TMP_DIR"
+    fi
 }
 trap cleanup EXIT
 
-err() { echo "error: $*" >&2; exit 1; }
-info() { echo "==> $*"; }
+err() {
+    echo "error: $*" >&2
+    exit 1
+}
+
+info() {
+    echo "==> $*"
+}
 
 usage() {
     cat <<'EOF'
@@ -44,14 +52,13 @@ need_cmd() {
 }
 
 detect_triple() {
-    local os arch
     os="$(uname -s)"
     arch="$(uname -m)"
 
     case "$os" in
         Darwin)
             case "$arch" in
-                arm64 | aarch64) echo "aarch64-apple-darwin" ;;
+                arm64|aarch64) echo "aarch64-apple-darwin" ;;
                 x86_64)
                     if sysctl -n hw.optional.x86_64 2>/dev/null | grep -q '^1$'; then
                         echo "x86_64-apple-darwin"
@@ -65,8 +72,8 @@ detect_triple() {
         Linux)
             case "$arch" in
                 x86_64) echo "x86_64-unknown-linux-musl" ;;
-                aarch64 | arm64) echo "aarch64-unknown-linux-musl" ;;
-                armv7l | armv6l) echo "armv7-unknown-linux-gnueabihf" ;;
+                aarch64|arm64) echo "aarch64-unknown-linux-musl" ;;
+                armv7l|armv6l) echo "armv7-unknown-linux-gnueabihf" ;;
                 *) err "unsupported Linux architecture: $arch" ;;
             esac
             ;;
@@ -77,7 +84,9 @@ detect_triple() {
 }
 
 get_latest_version() {
-    curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" \
+    json="$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest")" \
+        || err "failed to fetch latest release from GitHub"
+    echo "$json" \
         | grep '"tag_name"' \
         | head -1 \
         | cut -d '"' -f 4 \
@@ -85,7 +94,7 @@ get_latest_version() {
 }
 
 parse_args() {
-    while [[ $# -gt 0 ]]; do
+    while [ "$#" -gt 0 ]; do
         case "$1" in
             --bin-dir)
                 BIN_DIR="$2"
@@ -103,7 +112,7 @@ parse_args() {
                 VERSION="${1#*=}"
                 shift
                 ;;
-            -h | --help)
+            -h|--help)
                 usage
                 exit 0
                 ;;
@@ -124,16 +133,19 @@ main() {
         echo "warning: tmux not found on PATH — install it before running tu" >&2
     fi
 
-    local triple
     triple="$(detect_triple)"
     info "platform: $triple"
 
-    local version="${VERSION:-$(get_latest_version)}"
-    [[ -n "$version" ]] || err "could not determine release version"
+    if [ -n "$VERSION" ]; then
+        version="$VERSION"
+    else
+        version="$(get_latest_version)"
+    fi
+    [ -n "$version" ] || err "could not determine release version"
     info "version: $version"
 
-    local asset="tu-${version}-${triple}.tar.gz"
-    local url="https://github.com/${REPO}/releases/download/v${version}/${asset}"
+    asset="tu-${version}-${triple}.tar.gz"
+    url="https://github.com/${REPO}/releases/download/v${version}/${asset}"
 
     _TMP_DIR="$(mktemp -d)"
 
