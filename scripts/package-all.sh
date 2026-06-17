@@ -70,9 +70,12 @@ for t in "${RPM_TARGETS[@]}"; do
     echo "    $DIST_DIR/$(ls -t "$DIST_DIR" | grep "\.rpm$" | head -1)"
 done
 
+echo ">>> install.sh"
+cp install.sh "$DIST_DIR/"
+
 echo ">>> SHA256SUMS"
 cd "$DIST_DIR"
-shasum -a 256 *.tar.gz *.deb *.rpm > SHA256SUMS
+shasum -a 256 *.tar.gz *.deb *.rpm install.sh > SHA256SUMS
 cat SHA256SUMS
 
 echo

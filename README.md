@@ -53,6 +53,31 @@ tmux or from a fresh shell — it adapts.
 
 ## Install
 
+### Quick install (macOS & Linux, no sudo)
+
+Detects your OS/arch, downloads the matching release binary, and
+installs it to `~/.local/bin`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/hungryZoo/tu/main/install.sh | sh
+```
+
+Pin a version or pick a different directory:
+
+```bash
+TU_VERSION=1.0.0 TU_INSTALL_DIR=~/bin curl -fsSL .../install.sh | sh
+```
+
+If `~/.local/bin` is not on your `PATH` yet, add this to
+`~/.zshrc` / `~/.bashrc`:
+
+```bash
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+`tmux` must be installed separately — the installer only ships
+the `tu` binary.
+
 ### macOS — Homebrew tap
 
 ```bash
@@ -63,52 +88,45 @@ brew install tu
 The tap covers both Apple Silicon and Intel Macs; Homebrew picks
 the right binary for you.
 
-### Linux — `.deb` (Debian, Ubuntu, Raspberry Pi OS, …)
+### Linux — system packages (optional, needs sudo)
 
-x86_64:
+`.deb` (Debian, Ubuntu, Raspberry Pi OS, …):
 
 ```bash
+# x86_64
 curl -LO https://github.com/hungryZoo/tu/releases/latest/download/tu_1.0.0_amd64.deb
 sudo dpkg -i tu_1.0.0_amd64.deb
-```
 
-ARM64 (Pi 4 / 5 in 64-bit OS, AWS Graviton, …):
-
-```bash
+# ARM64 (Pi 4/5 64-bit OS, AWS Graviton, …)
 curl -LO https://github.com/hungryZoo/tu/releases/latest/download/tu_1.0.0_arm64.deb
 sudo dpkg -i tu_1.0.0_arm64.deb
-```
 
-ARMv7 (Pi 2 / 3 / 4 / 5 in 32-bit Raspberry Pi OS):
-
-```bash
+# ARMv7 (32-bit Raspberry Pi OS)
 curl -LO https://github.com/hungryZoo/tu/releases/latest/download/tu_1.0.0_armhf.deb
 sudo dpkg -i tu_1.0.0_armhf.deb
 ```
 
-### Linux — `.rpm` (Fedora, RHEL, CentOS, openSUSE, …)
-
-x86_64:
+`.rpm` (Fedora, RHEL, CentOS, openSUSE, …):
 
 ```bash
+# x86_64
 sudo rpm -i https://github.com/hungryZoo/tu/releases/latest/download/tu-1.0.0-1.x86_64.rpm
-```
 
-ARM64:
-
-```bash
+# ARM64
 sudo rpm -i https://github.com/hungryZoo/tu/releases/latest/download/tu-1.0.0-1.aarch64.rpm
 ```
 
-### Anywhere — tarball
+### Manual — tarball
 
 Grab the archive matching your platform from the
 [latest release](https://github.com/hungryZoo/tu/releases/latest),
-unpack it, drop the binary on `PATH`:
+unpack it, and copy the binary somewhere on `PATH` — no sudo
+needed if you use a user-writable directory:
 
 ```bash
 tar -xzf tu-1.0.0-<triple>.tar.gz
-sudo install -m 0755 tu /usr/local/bin/tu
+mkdir -p ~/.local/bin
+install -m 0755 tu ~/.local/bin/tu
 ```
 
 Triples available:
