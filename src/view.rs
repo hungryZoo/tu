@@ -55,8 +55,8 @@ pub fn render(f: &mut Frame, state: &mut AppState) {
     let modal = match &state.screen {
         Screen::Main => None,
         Screen::ConfirmDelete { name, focus } => Some(ModalSnapshot::Delete(name.clone(), *focus)),
-        Screen::ConfSetup { directives, focus } => {
-            let lines: Vec<String> = directives.iter().map(|d| d.line()).collect();
+        Screen::ConfSetup { items, focus } => {
+            let lines: Vec<String> = items.iter().flat_map(|i| i.lines()).collect();
             Some(ModalSnapshot::Conf(lines, *focus))
         }
         Screen::RestartNotice { message } => Some(ModalSnapshot::Notice(message.clone())),
@@ -396,10 +396,13 @@ fn render_conf_setup(
         Line::from(""),
     ];
     for line in directive_lines {
-        body.push(Line::from(Span::styled(
-            format!("  {line}"),
-            theme::modal_directive_style(),
-        )));
+        body.push(
+            Line::from(Span::styled(
+                format!("  {line}"),
+                theme::modal_directive_style(),
+            ))
+            .alignment(Alignment::Left),
+        );
     }
     body.push(Line::from(""));
     body.push(Line::from(Span::styled(

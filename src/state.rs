@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 
 use ratatui::layout::{Position, Rect};
 
-use crate::conf_setup::Directive;
+use crate::conf_setup::ConfItem;
 use crate::models::Session;
 
 /// Two clicks on the *same* hit target within this window count as a
@@ -96,7 +96,7 @@ pub enum Screen {
         focus: DeleteFocus,
     },
     ConfSetup {
-        directives: Vec<Directive>,
+        items: Vec<ConfItem>,
         focus: ConfFocus,
     },
     /// Single-button acknowledge dialog shown after a successful
