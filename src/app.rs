@@ -23,7 +23,7 @@ use crossterm::terminal::{
 use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
 
-use crate::conf_setup::{self, Directive};
+use crate::conf_setup::{self, ConfItem};
 use crate::state::{AppState, ButtonId, ConfFocus, DeleteFocus, Focus, HitTarget, Screen};
 use crate::tmux;
 use crate::view;
@@ -43,10 +43,11 @@ pub fn run() -> io::Result<AppOutcome> {
     let mut state = AppState::new(inside_tmux);
     state.set_sessions(tmux::list_sessions());
 
-    let missing = conf_setup::missing_directives(&conf_setup::conf_path());
+    let missing =
+        conf_setup::missing_items(&conf_setup::conf_path(), conf_setup::detect_popup_support());
     if !missing.is_empty() {
         state.screen = Screen::ConfSetup {
-            directives: missing,
+            items: missing,
             focus: ConfFocus::default(),
         };
     }
@@ -443,15 +444,15 @@ fn dismiss_modal(state: &mut AppState) {
 fn apply_conf_modal(state: &mut AppState) {
     // Grab the directives we need from the modal state before we
     // tear it down.
-    let directives: Vec<Directive> = match &state.screen {
-        Screen::ConfSetup { directives, .. } => directives.clone(),
+    let items: Vec<ConfItem> = match &state.screen {
+        Screen::ConfSetup { items, .. } => items.clone(),
         _ => return,
     };
     let conf = conf_setup::conf_path();
-    match conf_setup::append_directives(&directives, &conf) {
+    match conf_setup::append_items(&items, &conf) {
         Ok(()) => {
-            let applied = conf_setup::apply_directives_to_server(&directives);
-            let names: Vec<String> = directives.iter().map(|d| d.option.clone()).collect();
+            let applied = conf_setup::apply_items_to_server(&items);
+            let names: Vec<String> = items.iter().map(ConfItem::name).collect();
             let server_line = if applied {
                 "We also pushed the new options to the running tmux server."
             } else {
