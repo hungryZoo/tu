@@ -209,7 +209,9 @@ fn render_session_list(f: &mut Frame, area: Rect, state: &mut AppState) {
 // --------------------------------------------------------- buttons
 
 fn render_buttons(f: &mut Frame, area: Rect, state: &mut AppState) {
-    let spacer: u16 = 2;
+    // One column between buttons keeps the five labels (76 cells with
+    // "Cancel (Esc)" and "Delete (Bksp)") inside an 80-column pane.
+    let spacer: u16 = 1;
     let widths: Vec<u16> = BUTTON_ORDER
         .iter()
         .map(|b| (b.label().chars().count() as u16) + 4)
@@ -262,7 +264,7 @@ fn button_visual(state: &AppState, button: ButtonId) -> ButtonVisual {
 
 fn button_enabled(state: &AppState, button: ButtonId) -> bool {
     match button {
-        ButtonId::New | ButtonId::Quit => true,
+        ButtonId::New | ButtonId::Cancel => true,
         ButtonId::Attach | ButtonId::Delete => state.has_sessions(),
         ButtonId::Detach => state.inside_tmux,
     }
@@ -317,10 +319,10 @@ fn render_hint(f: &mut Frame, area: Rect) {
         key("d"),
         word(" Detach"),
         separator(),
-        key("q"),
-        word(" Quit"),
+        key("Esc"),
+        word(" Cancel"),
         separator(),
-        key("del"),
+        key("Bksp"),
         word(" Delete"),
         separator(),
         key("↑↓"),

@@ -131,7 +131,9 @@ fn handle_key(state: &mut AppState, key: KeyEvent) {
 fn handle_key_main(state: &mut AppState, key: KeyEvent) {
     let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
     match key.code {
-        KeyCode::Char('q') | KeyCode::Esc => {
+        // "Cancel": Esc closes tu without touching anything. Ctrl-C is
+        // kept as the universal bail-out.
+        KeyCode::Esc => {
             state.should_exit = true;
         }
         KeyCode::Char('c') if ctrl => {
@@ -140,7 +142,9 @@ fn handle_key_main(state: &mut AppState, key: KeyEvent) {
         KeyCode::Char('n') => action_new_session(state),
         KeyCode::Char('a') => action_attach_selected(state),
         KeyCode::Char('d') => action_detach(state),
-        KeyCode::Delete => action_open_delete_modal(state),
+        // Backspace is the advertised Delete key (it's the key labelled
+        // "delete" on Mac keyboards); forward-Delete keeps working too.
+        KeyCode::Backspace | KeyCode::Delete => action_open_delete_modal(state),
         KeyCode::Tab => state.focus_next(),
         KeyCode::BackTab => state.focus_prev(),
         KeyCode::Up => match state.focus {
@@ -323,14 +327,14 @@ fn activate_main_button(state: &mut AppState, button: ButtonId) {
         ButtonId::New => action_new_session(state),
         ButtonId::Attach => action_attach_selected(state),
         ButtonId::Detach => action_detach(state),
-        ButtonId::Quit => state.should_exit = true,
+        ButtonId::Cancel => state.should_exit = true,
         ButtonId::Delete => action_open_delete_modal(state),
     }
 }
 
 fn button_enabled(state: &AppState, button: ButtonId) -> bool {
     match button {
-        ButtonId::New | ButtonId::Quit => true,
+        ButtonId::New | ButtonId::Cancel => true,
         ButtonId::Attach | ButtonId::Delete => state.has_sessions(),
         ButtonId::Detach => state.inside_tmux,
     }
@@ -583,7 +587,22 @@ mod tests {
     }
 
     #[test]
-    fn quit_button_exits_via_keyboard() {
+    fn esc_cancels_and_exits() {
+        let mut s = make_state(false, &[]);
+        handle_key_main(
+            &mut s,
+            KeyEvent {
+                code: KeyCode::Esc,
+                modifiers: KeyModifiers::empty(),
+                kind: KeyEventKind::Press,
+                state: crossterm::event::KeyEventState::empty(),
+            },
+        );
+        assert!(s.should_exit);
+    }
+
+    #[test]
+    fn q_is_no_longer_a_shortcut() {
         let mut s = make_state(false, &[]);
         handle_key_main(
             &mut s,
@@ -594,7 +613,16 @@ mod tests {
                 state: crossterm::event::KeyEventState::empty(),
             },
         );
-        assert!(s.should_exit);
+        assert!(!s.should_exit);
+    }
+
+    #[test]
+    fn backspace_and_delete_open_delete_modal() {
+        for code in [KeyCode::Backspace, KeyCode::Delete] {
+            let mut s = make_state(false, &["work"]);
+            handle_key_main(&mut s, key(code));
+            assert!(matches!(s.screen, Screen::ConfirmDelete { .. }), "{code:?}");
+        }
     }
 
     #[test]
@@ -613,9 +641,9 @@ mod tests {
     }
 
     #[test]
-    fn quit_button_skips_disabled_handling() {
+    fn cancel_button_skips_disabled_handling() {
         let mut s = make_state(false, &[]);
-        activate_main_button(&mut s, ButtonId::Quit);
+        activate_main_button(&mut s, ButtonId::Cancel);
         assert!(s.should_exit);
     }
 
