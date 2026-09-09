@@ -59,13 +59,7 @@ detect_triple() {
         Darwin)
             case "$arch" in
                 arm64|aarch64) echo "aarch64-apple-darwin" ;;
-                x86_64)
-                    if sysctl -n hw.optional.x86_64 2>/dev/null | grep -q '^1$'; then
-                        echo "x86_64-apple-darwin"
-                    else
-                        err "unsupported macOS architecture: $arch"
-                    fi
-                    ;;
+                x86_64) echo "x86_64-apple-darwin" ;;
                 *) err "unsupported macOS architecture: $arch" ;;
             esac
             ;;
@@ -84,6 +78,16 @@ detect_triple() {
 }
 
 get_latest_version() {
+    # Follow the /releases/latest redirect first: it needs no API
+    # quota, so it keeps working behind shared IPs that have already
+    # burned through the unauthenticated GitHub API rate limit.
+    final="$(curl -fsSLI -o /dev/null -w '%{url_effective}' \
+        "https://github.com/${REPO}/releases/latest" 2>/dev/null || true)"
+    tag="${final##*/tag/}"
+    if [ -n "$final" ] && [ "$tag" != "$final" ] && [ -n "$tag" ]; then
+        echo "$tag" | sed 's/^v//'
+        return
+    fi
     json="$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest")" \
         || err "failed to fetch latest release from GitHub"
     echo "$json" \

@@ -35,7 +35,9 @@ for t in "${TARGETS[@]}"; do
     stage="$(mktemp -d)"
     cp "$bin" "$stage/tu"
     cp README.md LICENSE "$stage/"
-    tar -czf "$DIST_DIR/tu-$VERSION-$t.tar.gz" -C "$stage" tu README.md LICENSE
+    # COPYFILE_DISABLE keeps macOS bsdtar from adding ._* / xattr
+    # headers that GNU tar on Linux then warns about on extract.
+    COPYFILE_DISABLE=1 tar -czf "$DIST_DIR/tu-$VERSION-$t.tar.gz" -C "$stage" tu README.md LICENSE
     rm -rf "$stage"
     echo "    $DIST_DIR/tu-$VERSION-$t.tar.gz"
 done

@@ -14,30 +14,30 @@
 class Tu < Formula
   desc "Tiny TUI menu on top of tmux"
   homepage "https://github.com/hungryZoo/tu"
-  version "1.0.0"
+  version "1.1.0"
   license "MIT"
 
   depends_on "tmux"
 
   on_macos do
     on_arm do
-      url "https://github.com/hungryZoo/tu/releases/download/v1.0.0/tu-1.0.0-aarch64-apple-darwin.tar.gz"
-      sha256 "5a19585df56cd386c19a60a2e20ab0df897558e5778fb8f0903bf595d939c8c9"
+      url "https://github.com/hungryZoo/tu/releases/download/v1.1.0/tu-1.1.0-aarch64-apple-darwin.tar.gz"
+      sha256 "aca53bc861bfa06cf5c0e7397fea9e279c8f907852f717ff1f86dc88cacca8ae"
     end
     on_intel do
-      url "https://github.com/hungryZoo/tu/releases/download/v1.0.0/tu-1.0.0-x86_64-apple-darwin.tar.gz"
-      sha256 "cb78ed1e44de16b1649e6570416e3ae7286a95843423e71c83eeb65519852918"
+      url "https://github.com/hungryZoo/tu/releases/download/v1.1.0/tu-1.1.0-x86_64-apple-darwin.tar.gz"
+      sha256 "11b89bbe9ae2abdfc670ed720e43461814b54503b78804cc8b03331003a7f875"
     end
   end
 
   on_linux do
     on_arm do
-      url "https://github.com/hungryZoo/tu/releases/download/v1.0.0/tu-1.0.0-aarch64-unknown-linux-gnu.tar.gz"
-      sha256 "9c64bfd76530a406b3089c253bfc45464f770db7f7967a3841ccb01ecfb50e0f"
+      url "https://github.com/hungryZoo/tu/releases/download/v1.1.0/tu-1.1.0-aarch64-unknown-linux-gnu.tar.gz"
+      sha256 "8472f3baddfc0ca1227373133627802dc8ef14812c88d6e68057e16f2209adc6"
     end
     on_intel do
-      url "https://github.com/hungryZoo/tu/releases/download/v1.0.0/tu-1.0.0-x86_64-unknown-linux-gnu.tar.gz"
-      sha256 "0ecff45353939e69220e2b94690c07e9fc1e046dfc9864af63636bdf31c752ff"
+      url "https://github.com/hungryZoo/tu/releases/download/v1.1.0/tu-1.1.0-x86_64-unknown-linux-gnu.tar.gz"
+      sha256 "53b2978f46a4e1475ff570a08d62c74586a20e29e2c29fcd760cacce89307208"
     end
   end
 
