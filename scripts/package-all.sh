@@ -8,10 +8,13 @@ set -euo pipefail
 
 export PATH="$HOME/.rustup/toolchains/stable-aarch64-apple-darwin/bin:$HOME/.cargo/bin:$PATH"
 
-VERSION="1.1.0"
+# Version comes from Cargo.toml so a release bump is a one-file change;
+# override with VERSION=... if you must.
 DIST_DIR="dist"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
+VERSION="${VERSION:-$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)}"
+[ -n "$VERSION" ] || { echo "could not read version from Cargo.toml" >&2; exit 1; }
 
 mkdir -p "$DIST_DIR"
 
