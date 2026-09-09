@@ -25,7 +25,7 @@ pub enum ButtonId {
     New,
     Attach,
     Detach,
-    Quit,
+    Cancel,
     Delete,
 }
 
@@ -33,7 +33,7 @@ pub const BUTTON_ORDER: [ButtonId; 5] = [
     ButtonId::New,
     ButtonId::Attach,
     ButtonId::Detach,
-    ButtonId::Quit,
+    ButtonId::Cancel,
     ButtonId::Delete,
 ];
 
@@ -47,8 +47,8 @@ impl ButtonId {
             ButtonId::New => "New (n)",
             ButtonId::Attach => "Attach (a)",
             ButtonId::Detach => "Detach (d)",
-            ButtonId::Quit => "Quit (q)",
-            ButtonId::Delete => "Delete (del)",
+            ButtonId::Cancel => "Cancel (Esc)",
+            ButtonId::Delete => "Delete (Bksp)",
         }
     }
 
@@ -380,7 +380,7 @@ mod tests {
         st.focus_prev();
         assert_eq!(st.focus, Focus::Button(ButtonId::Delete));
         st.focus_prev();
-        assert_eq!(st.focus, Focus::Button(ButtonId::Quit));
+        assert_eq!(st.focus, Focus::Button(ButtonId::Cancel));
     }
 
     #[test]
