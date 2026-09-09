@@ -56,6 +56,89 @@ pub fn is_inside_tmux() -> bool {
     env::var("TMUX").map(|v| !v.is_empty()).unwrap_or(false)
 }
 
+/// True when we're running inside a real tmux *pane* (as opposed to
+/// a popup or a `run-shell` job). tmux exports ``$TMUX_PANE`` only
+/// for pane processes, so its absence while ``$TMUX`` is set means
+/// we're already hosted by `display-popup` and must not open another.
+pub fn is_inside_pane() -> bool {
+    is_inside_tmux()
+        && env::var("TMUX_PANE")
+            .map(|v| !v.is_empty())
+            .unwrap_or(false)
+}
+
+// ----------------------------------------------------- version
+
+/// Parse the ``tmux -V`` banner into ``(major, minor)``.
+///
+/// Handles the shapes tmux actually emits: ``tmux 3.4``, ``tmux 3.3a``,
+/// ``tmux next-3.5``. Anything unparsable (e.g. ``tmux master``)
+/// yields `None`, which callers treat as "assume nothing".
+pub fn parse_version(banner: &str) -> Option<(u32, u32)> {
+    let token = banner.split_whitespace().last()?;
+    let token = token.strip_prefix("next-").unwrap_or(token);
+    let mut parts = token.split('.');
+    let major: u32 = parts.next()?.parse().ok()?;
+    let minor_raw = parts.next()?;
+    let digits: String = minor_raw
+        .chars()
+        .take_while(|c| c.is_ascii_digit())
+        .collect();
+    let minor: u32 = digits.parse().ok()?;
+    Some((major, minor))
+}
+
+pub fn version() -> Option<(u32, u32)> {
+    let out = Command::new("tmux").arg("-V").output().ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    parse_version(&String::from_utf8_lossy(&out.stdout))
+}
+
+/// ``display-popup`` arrived in tmux 3.2.
+pub fn supports_popup() -> bool {
+    matches!(version(), Some(v) if v >= (3, 2))
+}
+
+/// ``display-popup -B`` (no border) arrived in tmux 3.3.
+pub fn supports_borderless_popup() -> bool {
+    matches!(version(), Some(v) if v >= (3, 3))
+}
+
+// ----------------------------------------------------- popup
+
+/// Build the ``display-popup`` argv that re-launches *exe* full-screen
+/// over the current client. The popup closes when the command exits
+/// (`-E`); the border is dropped when the server is new enough.
+pub fn popup_argv(exe: &str, borderless: bool) -> Vec<String> {
+    let mut argv: Vec<String> = vec!["display-popup".into(), "-E".into()];
+    if borderless {
+        argv.push("-B".into());
+    }
+    argv.extend(["-w", "100%", "-h", "100%"].iter().map(|s| s.to_string()));
+    argv.push(shell_quote(exe));
+    argv
+}
+
+/// Re-exec ourselves inside a full-screen tmux popup. Returns the
+/// tmux result; the popup itself runs asynchronously on the server,
+/// so this call comes back as soon as tmux has accepted the request.
+pub fn open_self_in_popup() -> TmuxResult {
+    let exe = env::current_exe()
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_else(|_| "tu".to_string());
+    let argv = popup_argv(&exe, supports_borderless_popup());
+    let refs: Vec<&str> = argv.iter().map(String::as_str).collect();
+    run(&refs)
+}
+
+/// Single-quote *s* for ``sh -c`` — tmux runs popup commands through
+/// the user's shell, so a path with spaces must be protected.
+fn shell_quote(s: &str) -> String {
+    format!("'{}'", s.replace('\'', "'\\''"))
+}
+
 // ----------------------------------------------------- query
 
 pub fn list_sessions() -> Vec<Session> {
@@ -182,5 +265,60 @@ mod tests {
     #[test]
     fn attach_argv_omits_target_when_none() {
         assert_eq!(attach_argv(None), vec!["tmux", "attach-session"]);
+    }
+
+    #[test]
+    fn parse_version_handles_release_banners() {
+        assert_eq!(parse_version("tmux 3.4"), Some((3, 4)));
+        assert_eq!(parse_version("tmux 3.3a"), Some((3, 3)));
+        assert_eq!(parse_version("tmux 2.9a"), Some((2, 9)));
+        assert_eq!(parse_version("tmux next-3.5"), Some((3, 5)));
+        assert_eq!(parse_version("tmux 3.4\n"), Some((3, 4)));
+    }
+
+    #[test]
+    fn parse_version_rejects_unknown_shapes() {
+        assert_eq!(parse_version("tmux master"), None);
+        assert_eq!(parse_version(""), None);
+    }
+
+    #[test]
+    fn popup_argv_is_fullscreen_and_closes_on_exit() {
+        assert_eq!(
+            popup_argv("/usr/bin/tu", true),
+            vec![
+                "display-popup",
+                "-E",
+                "-B",
+                "-w",
+                "100%",
+                "-h",
+                "100%",
+                "'/usr/bin/tu'"
+            ]
+        );
+        assert_eq!(
+            popup_argv("/usr/bin/tu", false),
+            vec![
+                "display-popup",
+                "-E",
+                "-w",
+                "100%",
+                "-h",
+                "100%",
+                "'/usr/bin/tu'"
+            ]
+        );
+    }
+
+    #[test]
+    fn popup_argv_quotes_paths_with_spaces() {
+        let argv = popup_argv("/Users/me/my bin/tu", false);
+        assert_eq!(
+            argv.last().map(String::as_str),
+            Some("'/Users/me/my bin/tu'")
+        );
+        let argv = popup_argv("/it's/tu", false);
+        assert_eq!(argv.last().map(String::as_str), Some("'/it'\\''s/tu'"));
     }
 }
