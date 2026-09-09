@@ -1,0 +1,140 @@
+name: release
+
+# Builds every supported target with cargo-zigbuild on one Ubuntu
+# runner, packages tarballs / .deb / .rpm, publishes a GitHub release,
+# and bumps Formula/tu.rb on main to the new checksums.
+#
+# Two ways in:
+#   * push a tag `vX.Y.Z`                     -> releases that tag
+#   * Actions > release > Run workflow        -> creates tag vX.Y.Z on the
+#     chosen ref (X.Y.Z read from Cargo.toml) if it doesn't exist, then
+#     releases it
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve version
+        id: ver
+        run: |
+          set -euo pipefail
+          cargo_version="$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)"
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            tag_version="${GITHUB_REF#refs/tags/v}"
+            if [[ "$tag_version" != "$cargo_version" ]]; then
+              echo "tag v$tag_version does not match Cargo.toml version $cargo_version" >&2
+              exit 1
+            fi
+          fi
+          echo "version=$cargo_version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$cargo_version" >> "$GITHUB_OUTPUT"
+
+      - name: Create tag (workflow_dispatch only)
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          TAG: ${{ steps.ver.outputs.tag }}
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          set -euo pipefail
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "$TAG already exists on origin; releasing that commit"
+            git fetch origin "refs/tags/$TAG:refs/tags/$TAG"
+            git checkout -q "$TAG"
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git tag -a "$TAG" -m "tu $VERSION"
+            git push origin "refs/tags/$TAG"
+          fi
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: >-
+            aarch64-apple-darwin,
+            x86_64-apple-darwin,
+            x86_64-unknown-linux-gnu,
+            x86_64-unknown-linux-musl,
+            aarch64-unknown-linux-gnu,
+            aarch64-unknown-linux-musl,
+            armv7-unknown-linux-gnueabihf
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install cargo-zigbuild, cargo-deb, cargo-generate-rpm
+        run: |
+          set -euo pipefail
+          pip install --quiet cargo-zigbuild ziglang
+          curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash
+          cargo binstall -y --locked cargo-deb cargo-generate-rpm \
+            || cargo install --locked cargo-deb cargo-generate-rpm
+
+      - name: Build all targets
+        run: |
+          set -euo pipefail
+          for t in \
+            x86_64-unknown-linux-gnu \
+            x86_64-unknown-linux-musl \
+            aarch64-unknown-linux-gnu \
+            aarch64-unknown-linux-musl \
+            armv7-unknown-linux-gnueabihf \
+            aarch64-apple-darwin \
+            x86_64-apple-darwin; do
+            echo "::group::$t"
+            cargo zigbuild --release --target "$t"
+            echo "::endgroup::"
+          done
+          ./target/x86_64-unknown-linux-gnu/release/tu --version
+
+      - name: Package
+        run: bash scripts/package-all.sh
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.ver.outputs.tag }}
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          set -euo pipefail
+          notes=".github/release-notes/$TAG.md"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "release $TAG exists; replacing assets"
+          elif [[ -f "$notes" ]]; then
+            title="$(sed -n '1s/^# *//p' "$notes")"
+            gh release create "$TAG" --title "${title:-tu $VERSION}" --notes-file "$notes" --verify-tag
+          else
+            gh release create "$TAG" --title "tu $VERSION" --generate-notes --verify-tag
+          fi
+          gh release upload "$TAG" dist/* --clobber
+
+      - name: Bump Homebrew formula on main
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          set -euo pipefail
+          cp dist/SHA256SUMS /tmp/SHA256SUMS
+          git fetch origin main
+          git checkout -q -B main origin/main
+          scripts/update-formula.sh "$VERSION" /tmp/SHA256SUMS
+          if git diff --quiet -- Formula/tu.rb; then
+            echo "Formula already up to date"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "release: point Homebrew formula at $VERSION assets"
+          git push origin main
