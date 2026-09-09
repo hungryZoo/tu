@@ -22,8 +22,9 @@ List, create, attach, detach, or delete sessions — keyboard
 `tu` is a single 1.3 MB binary that opens a small picker over your
 running `tmux` sessions. Pick one to attach, double-click to dive in,
 **n** to spawn a fresh session, **d** to detach the current client,
-**Delete** to kill a session (with a confirmation). Run it inside
-tmux or from a fresh shell — it adapts.
+**Backspace** to kill a session (with a confirmation). Run it from a
+fresh shell, from a tmux pane (it opens full-screen over your work),
+or click the **tu** button it puts on your tmux status bar.
 
 <div align="center">
 
@@ -42,12 +43,23 @@ tmux or from a fresh shell — it adapts.
   `tmux attach-session` so you skip the flicker. Inside tmux,
   the same actions use `switch-client`; **Detach** becomes
   available.
-- **Safe Delete.** `del` opens a confirmation modal with focus
-  on *Back* — accidental Enter cancels.
+- **Full-screen popup inside tmux.** Run `tu` from any pane on
+  tmux ≥ 3.2 and it re-launches itself in a `display-popup`
+  covering the whole client, then hands the pane back when it
+  closes. No window juggling. `--no-popup` (or `TU_NO_POPUP=1`)
+  keeps the old inline behaviour.
+- **A `tu` button on the status bar.** One click on the bold
+  ` tu ` label at the right end of tmux's status line opens the
+  same full-screen popup — handy when something is running in
+  every pane.
+- **Safe Delete.** **Backspace** (or forward-Delete) opens a
+  confirmation modal with focus on *Back* — accidental Enter
+  cancels. **Esc** / **Cancel** just closes `tu`.
 - **Self-bootstrapping `~/.tmux.conf`.** First launch offers to
-  append `set -g mouse on` and `set -g history-limit 10000000`,
-  applies them to the running server, then asks you to restart
-  `tu` so the new config takes effect cleanly.
+  append `set -g mouse on`, `set -g history-limit 10000000` and
+  the status-bar button, applies them to the running server,
+  then asks you to restart `tu` so the new config takes effect
+  cleanly.
 - **Catppuccin Mocha** theme with proper focus, hover, press and
   disabled states across every widget.
 
@@ -65,7 +77,7 @@ curl -fsSL https://raw.githubusercontent.com/hungryZoo/tu/main/install.sh | sh
 Pin a version or pick a different directory:
 
 ```bash
-TU_VERSION=1.0.0 TU_INSTALL_DIR=~/bin curl -fsSL .../install.sh | sh
+TU_VERSION=1.1.0 TU_INSTALL_DIR=~/bin curl -fsSL .../install.sh | sh
 ```
 
 If `~/.local/bin` is not on your `PATH` yet, add this to
@@ -94,26 +106,26 @@ the right binary for you.
 
 ```bash
 # x86_64
-curl -LO https://github.com/hungryZoo/tu/releases/latest/download/tu_1.0.0_amd64.deb
-sudo dpkg -i tu_1.0.0_amd64.deb
+curl -LO https://github.com/hungryZoo/tu/releases/latest/download/tu_1.1.0_amd64.deb
+sudo dpkg -i tu_1.1.0_amd64.deb
 
 # ARM64 (Pi 4/5 64-bit OS, AWS Graviton, …)
-curl -LO https://github.com/hungryZoo/tu/releases/latest/download/tu_1.0.0_arm64.deb
-sudo dpkg -i tu_1.0.0_arm64.deb
+curl -LO https://github.com/hungryZoo/tu/releases/latest/download/tu_1.1.0_arm64.deb
+sudo dpkg -i tu_1.1.0_arm64.deb
 
 # ARMv7 (32-bit Raspberry Pi OS)
-curl -LO https://github.com/hungryZoo/tu/releases/latest/download/tu_1.0.0_armhf.deb
-sudo dpkg -i tu_1.0.0_armhf.deb
+curl -LO https://github.com/hungryZoo/tu/releases/latest/download/tu_1.1.0_armhf.deb
+sudo dpkg -i tu_1.1.0_armhf.deb
 ```
 
 `.rpm` (Fedora, RHEL, CentOS, openSUSE, …):
 
 ```bash
 # x86_64
-sudo rpm -i https://github.com/hungryZoo/tu/releases/latest/download/tu-1.0.0-1.x86_64.rpm
+sudo rpm -i https://github.com/hungryZoo/tu/releases/latest/download/tu-1.1.0-1.x86_64.rpm
 
 # ARM64
-sudo rpm -i https://github.com/hungryZoo/tu/releases/latest/download/tu-1.0.0-1.aarch64.rpm
+sudo rpm -i https://github.com/hungryZoo/tu/releases/latest/download/tu-1.1.0-1.aarch64.rpm
 ```
 
 ### Manual — tarball
@@ -124,7 +136,7 @@ unpack it, and copy the binary somewhere on `PATH` — no sudo
 needed if you use a user-writable directory:
 
 ```bash
-tar -xzf tu-1.0.0-<triple>.tar.gz
+tar -xzf tu-1.1.0-<triple>.tar.gz
 mkdir -p ~/.local/bin
 install -m 0755 tu ~/.local/bin/tu
 ```
@@ -162,7 +174,7 @@ cargo install --path .
 ```
 
 That drops `tu` into `~/.cargo/bin`. Requires Rust 1.78+;
-`cargo test` runs ~40 unit tests.
+`cargo test` runs ~50 unit tests.
 
 ## Quickstart
 
@@ -174,15 +186,20 @@ tu
 
 - **Outside tmux** → pick a session (or create one) and the shell
   hands itself over to `tmux attach-session`.
-- **Inside tmux**  → pick a session (`switch-client`) or
-  press **d** / click **Detach** to return to the parent shell.
+- **Inside tmux**  → `tu` opens full-screen in a popup over the
+  current client. Pick a session (`switch-client`) or press
+  **d** / click **Detach** to return to the parent shell.
+- **From the status bar** → click the ` tu ` button at the right
+  end of the bar (added on first launch, see below).
 
-Optional, but very nice — bind a hotkey in `~/.tmux.conf` so
-`F12` pops `tu` over your work from any pane:
+Optional — bind a hotkey too, so `F12` opens the same popup from
+any pane:
 
 ```tmux
-bind-key -n F12 display-popup -E "tu"
+bind-key -n F12 display-popup -E -B -w 100% -h 100% "tu"
 ```
+
+(`-B` needs tmux ≥ 3.3; drop it on 3.2.)
 
 ## Behavior
 
@@ -199,19 +216,33 @@ launched it from your parent shell or from inside a tmux pane.
    at `tu`.
 3. **n** / **New** creates a fresh `tu-N` session and attaches
    to it via the same hand-off.
-4. **q** / **Quit** just closes `tu`.
+4. **Esc** / **Cancel** just closes `tu`.
 
 **Detach** is greyed out: there is no tmux client to detach.
 
 ### From a tmux pane (inside tmux)
 
-1. Run `tu` inside a tmux pane.
+1. Run `tu` inside a tmux pane. On tmux ≥ 3.2 the pane instance
+   asks the server for `display-popup -E -w 100% -h 100%` (plus
+   `-B` on ≥ 3.3) running the same binary, and waits for the
+   popup to close. Older tmux draws inline in the pane.
 2. Pick / create works the same, except the existing client is
    moved with `tmux switch-client -t <name>`.
-3. **d** / **Detach** runs `tmux detach-client -s <session>`
-   (the session is resolved from `$TMUX_PANE`) so the current
+3. **d** / **Detach** runs `tmux detach-client` so the current
    client detaches and you land back at the parent shell — and
    `tu` closes too.
+
+The popup instance knows it is a popup because tmux exports
+`$TMUX` but no `$TMUX_PANE` to it, so it never opens a second
+popup — which also means your own `display-popup ... tu` bindings
+keep working unchanged.
+
+### From the status bar
+
+The `~/.tmux.conf` block below draws a bold ` tu ` label at the
+right end of the status line and binds a left click on it to the
+same full-screen popup. Clicks anywhere else on the bar keep
+tmux's default (select the window under the pointer).
 
 If a tmux command fails, `tu` stays open and surfaces the
 actual error in its status line.
@@ -221,37 +252,65 @@ actual error in its status line.
 Hard-deletes are gated by a confirmation modal so a single
 keystroke can't nuke anything.
 
-1. Highlight a row, press **Delete** (or click the red **Delete**
-   button).
+1. Highlight a row, press **Backspace** (or forward-Delete, or
+   click the red **Delete** button).
 2. *"Really delete session 'X'? This cannot be undone."* opens
    with focus on **Back** — Enter cancels by default.
 3. Tab to **Delete**, hit Enter (or click it). On confirm, `tu`
    runs `tmux kill-session -t <name>` and refreshes the list.
 
-> macOS laptops use **fn + delete** for the forward-Delete key.
+> On Mac keyboards the key labelled *delete* is Backspace, which
+> is exactly what `tu` listens for. **fn + delete** works too.
 
 ### `~/.tmux.conf` baseline
 
-On every launch `tu` checks for two directives:
+On every launch `tu` checks for three things:
 
-| Directive                       | Why                                    |
+| Item                            | Why                                    |
 | ------------------------------- | -------------------------------------- |
 | `set -g mouse on`               | Clicks + scroll work everywhere        |
 | `set -g history-limit 10000000` | A generously-sized scrollback buffer   |
+| status-bar ` tu ` button        | One-click launch from any window (tmux ≥ 3.2) |
 
-If either is missing, a modal offers to add it. Picking **Yes,
+If anything is missing, a modal offers to add it. Picking **Yes,
 add** will:
 
 1. Append the missing lines to **the end** of `~/.tmux.conf`
-   under a `# Added by tu` header. tmux's last-line-wins rule
-   keeps these authoritative even if an older conflicting line
-   sits higher up.
-2. Apply them to the running server with `tmux set-option -g`.
+   between a `# Added by tu` header and a `# End of tu` footer.
+   tmux's last-line-wins rule keeps these authoritative even if
+   an older conflicting line sits higher up.
+2. Apply them to the running server (`set-option -g`,
+   `set-option -ga status-right`, `bind-key -T root`).
 3. Show a *"restart tu"* notice — press Enter and `tu` exits so
    your next launch starts from a clean slate.
 
+A fresh `~/.tmux.conf` ends up with:
+
+```tmux
+# Added by tu (https://github.com/hungryZoo/tu)
+set -g mouse on
+set -g history-limit 10000000
+set -g status-right-length 60
+set -ag status-right "#[range=user|tu]#[fg=#1e1e2e,bg=#cba6f7,bold] tu #[norange]#[default]"
+bind -T root MouseDown1Status \
+  if -F '#{==:#{mouse_status_range},tu}' \
+    'display-popup -E -B -w 100% -h 100% tu' \
+    'select-window -t ='
+# End of tu
+```
+
+`-B` is written only on tmux ≥ 3.3; on 3.2 the popup keeps its
+border. Below 3.2 the button is never offered.
+
 If you've deliberately set `mouse off` (or any explicit value),
-`tu` respects it: the modal stays away.
+`tu` respects it: the modal stays away. The button is recognised
+by its `range=user|tu` marker, so you can restyle or move it and
+`tu` will still consider it configured.
+
+The bind runs plain `tu`, resolved through the tmux server's
+`PATH`. If you installed to `~/.local/bin` and tmux was started
+from a shell that doesn't put it on `PATH`, point the binding at
+the absolute path instead.
 
 ### Mouse, in detail
 
@@ -280,10 +339,10 @@ them forwarded.
 ```
 src/
 ├── lib.rs          # crate root for unit tests
-├── main.rs         # binary entry point (clap + execvp hand-off)
+├── main.rs         # binary entry point (clap, popup re-launch, execvp hand-off)
 ├── models.rs       # Session struct + tab-delimited parser
 ├── tmux.rs         # thin wrapper over the `tmux` CLI
-├── conf_setup.rs   # ~/.tmux.conf directive detection / patching
+├── conf_setup.rs   # ~/.tmux.conf directives + status-bar button
 ├── state.rs        # AppState, Screen, Focus, ButtonId, hit-test
 ├── theme.rs        # Catppuccin Mocha palette + per-state styles
 ├── view.rs         # render(): pure ratatui draw functions

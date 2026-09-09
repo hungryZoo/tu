@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # Package every per-target binary into dist/:
-#   tu-1.0.0-<triple>.tar.gz  (contains: tu, README.md, LICENSE)
-#   tu_1.0.0_<arch>.deb       (x86_64 / aarch64 / armv7)
-#   tu-1.0.0-1.<arch>.rpm     (x86_64 / aarch64)
+#   tu-1.1.0-<triple>.tar.gz  (contains: tu, README.md, LICENSE)
+#   tu_1.1.0_<arch>.deb       (x86_64 / aarch64 / armv7)
+#   tu-1.1.0-1.<arch>.rpm     (x86_64 / aarch64)
 #   SHA256SUMS                (covers every file above)
 set -euo pipefail
 
 export PATH="$HOME/.rustup/toolchains/stable-aarch64-apple-darwin/bin:$HOME/.cargo/bin:$PATH"
 
-VERSION="1.0.0"
+VERSION="1.1.0"
 DIST_DIR="dist"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
