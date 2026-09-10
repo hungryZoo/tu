@@ -19,7 +19,7 @@ List, create, attach, detach, or delete sessions — keyboard
 
 ---
 
-`tu` is a single 1.3 MB binary that opens a small picker over your
+`tu` is a single ~1.5 MB binary that opens a small picker over your
 running `tmux` sessions. Pick one to attach, double-click to dive in,
 **n** to spawn a fresh session, **d** to detach the current client,
 **Backspace** to kill a session (with a confirmation). Run it from a
@@ -351,6 +351,27 @@ src/
 
 ## Building releases
 
+### From GitHub Actions (the normal path)
+
+The [`release`](.github/workflows/release.yml) workflow does the
+whole thing on one Ubuntu runner: cross-builds all seven targets
+with `cargo-zigbuild` (macOS included), packages tarballs +
+`.deb` + `.rpm` + `SHA256SUMS`, publishes the GitHub release, and
+commits the new checksums into `Formula/tu.rb` on `main`.
+
+To cut a release:
+
+1. Bump `version` in `Cargo.toml`, add
+   `.github/release-notes/vX.Y.Z.md` (the first `# heading` becomes
+   the release title), merge to `main`.
+2. Either push a tag — `git tag vX.Y.Z && git push origin vX.Y.Z` —
+   or open *Actions → release → Run workflow* on `main`, which
+   creates the tag for you if it doesn't exist.
+
+The workflow refuses a tag whose version doesn't match `Cargo.toml`.
+
+### Locally (macOS)
+
 Cross-compiling to Linux from macOS uses
 [`cargo-zigbuild`](https://github.com/rust-cross/cargo-zigbuild)
 with `zig` as the C linker, so no Docker / Linux toolchain is
@@ -373,7 +394,8 @@ Build every binary, then package tarballs + `.deb` + `.rpm` +
 
 ```bash
 bash scripts/build-all.sh
-bash scripts/package-all.sh
+bash scripts/package-all.sh          # version comes from Cargo.toml
+scripts/update-formula.sh 1.1.0 dist/SHA256SUMS   # refresh the tap
 ```
 
 ## Roadmap
