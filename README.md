@@ -386,18 +386,19 @@ src/
 The [`release`](.github/workflows/release.yml) workflow does the
 whole thing on one Ubuntu runner: cross-builds all eight targets
 with `cargo-zigbuild` (macOS included), packages tarballs +
-`.deb` + `.rpm` + `SHA256SUMS`, publishes the GitHub release, pushes
-the new checksums to `Formula/tu.rb` in
-[hungryZoo/homebrew-tap](https://github.com/hungryZoo/homebrew-tap),
-and publishes the crate to crates.io.
+`.deb` + `.rpm` + `SHA256SUMS`, and publishes the GitHub release.
 
-The last two steps need repository secrets and are skipped with a
-warning when they are missing:
+Homebrew and crates.io are updated afterwards from a developer machine,
+using the local `gh` login and `cargo login` rather than repository
+secrets:
 
-| Secret | What it is |
-|---|---|
-| `HOMEBREW_TAP_TOKEN` | Fine-grained GitHub PAT scoped to `hungryZoo/homebrew-tap`, Contents: read/write |
-| `CARGO_REGISTRY_TOKEN` | crates.io API token with publish scope |
+```bash
+scripts/post-release.sh        # version read from Cargo.toml
+```
+
+It rewrites `Formula/tu.rb` in
+[hungryZoo/homebrew-tap](https://github.com/hungryZoo/homebrew-tap)
+to the new checksums, pushes it, and runs `cargo publish`.
 
 To cut a release:
 

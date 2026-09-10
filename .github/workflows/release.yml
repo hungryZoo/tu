@@ -2,15 +2,11 @@ name: release
 
 # Builds every supported target with cargo-zigbuild on one Ubuntu
 # runner, packages tarballs / .deb / .rpm, publishes a GitHub release,
-# bumps Formula/tu.rb in hungryZoo/homebrew-tap to the new checksums,
-# and publishes the crate to crates.io.
+# and publishes a GitHub release.
 #
-# Secrets (Settings > Secrets and variables > Actions):
-#   HOMEBREW_TAP_TOKEN   fine-grained PAT, repo hungryZoo/homebrew-tap,
-#                        Contents: read/write. Without it the tap step is
-#                        skipped with a warning.
-#   CARGO_REGISTRY_TOKEN crates.io API token (publish scope). Without it
-#                        the crates.io step is skipped with a warning.
+# Homebrew tap + crates.io are updated afterwards from a developer
+# machine with `scripts/post-release.sh` (uses the local `gh` login and
+# `cargo login`; no repository secrets needed).
 #
 # Two ways in:
 #   * push a tag `vX.Y.Z`                     -> releases that tag
@@ -130,36 +126,3 @@ jobs:
             gh release create "$TAG" --title "tu $VERSION" --generate-notes --verify-tag
           fi
           gh release upload "$TAG" dist/* --clobber
-
-      - name: Bump Homebrew formula in hungryZoo/homebrew-tap
-        env:
-          VERSION: ${{ steps.ver.outputs.version }}
-          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
-        run: |
-          set -euo pipefail
-          if [[ -z "$TAP_TOKEN" ]]; then
-            echo "::warning::HOMEBREW_TAP_TOKEN not set; skipping Homebrew tap update"
-            exit 0
-          fi
-          git clone -q --depth 1 "https://x-access-token:${TAP_TOKEN}@github.com/hungryZoo/homebrew-tap.git" /tmp/tap
-          scripts/update-formula.sh "$VERSION" dist/SHA256SUMS /tmp/tap/Formula/tu.rb
-          cd /tmp/tap
-          if git diff --quiet -- Formula/tu.rb; then
-            echo "Formula already up to date"
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -qam "tu $VERSION"
-          git push -q origin HEAD
-
-      - name: Publish to crates.io
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-        run: |
-          set -euo pipefail
-          if [[ -z "$CARGO_REGISTRY_TOKEN" ]]; then
-            echo "::warning::CARGO_REGISTRY_TOKEN not set; skipping crates.io publish"
-            exit 0
-          fi
-          cargo publish --locked
