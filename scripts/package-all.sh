@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Package every per-target binary into dist/:
-#   tu-1.1.0-<triple>.tar.gz  (contains: tu, README.md, LICENSE)
-#   tu_1.1.0_<arch>.deb       (x86_64 / aarch64 / armv7)
-#   tu-1.1.0-1.<arch>.rpm     (x86_64 / aarch64)
+#   tu-<ver>-<triple>.tar.gz  (contains: tu, README.md, LICENSE)
+#   tu_<ver>_<arch>.deb       (amd64 / arm64 / armhf)
+#   tu-<ver>-1.<arch>.rpm     (x86_64 / aarch64)
 #   SHA256SUMS                (covers every file above)
 set -euo pipefail
 
@@ -26,6 +26,7 @@ TARGETS=(
     aarch64-unknown-linux-gnu
     aarch64-unknown-linux-musl
     armv7-unknown-linux-gnueabihf
+    arm-unknown-linux-gnueabihf
 )
 
 echo ">>> tarballs"
@@ -46,10 +47,12 @@ for t in "${TARGETS[@]}"; do
 done
 
 echo ">>> .deb (cargo-deb)"
+# The armhf .deb is built from the ARMv6 binary: it runs on every
+# 32-bit Raspberry Pi OS, from Pi 1 / Zero (ARM1176) up to Pi 5.
 DEB_TARGETS=(
     x86_64-unknown-linux-gnu
     aarch64-unknown-linux-gnu
-    armv7-unknown-linux-gnueabihf
+    arm-unknown-linux-gnueabihf
 )
 for t in "${DEB_TARGETS[@]}"; do
     if [[ ! -f "target/$t/release/tu" ]]; then

@@ -18,6 +18,7 @@ ZIG_TARGETS=(
     aarch64-unknown-linux-gnu
     aarch64-unknown-linux-musl
     armv7-unknown-linux-gnueabihf
+    arm-unknown-linux-gnueabihf
 )
 
 for t in "${NATIVE_TARGETS[@]}"; do

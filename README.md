@@ -77,7 +77,7 @@ curl -fsSL https://raw.githubusercontent.com/hungryZoo/tu/main/install.sh | sh
 Pin a version or pick a different directory:
 
 ```bash
-TU_VERSION=1.1.0 TU_INSTALL_DIR=~/bin curl -fsSL .../install.sh | sh
+TU_VERSION=1.1.1 TU_INSTALL_DIR=~/bin curl -fsSL .../install.sh | sh
 ```
 
 If `~/.local/bin` is not on your `PATH` yet, add this to
@@ -106,26 +106,26 @@ the right binary for you.
 
 ```bash
 # x86_64
-curl -LO https://github.com/hungryZoo/tu/releases/latest/download/tu_1.1.0_amd64.deb
-sudo dpkg -i tu_1.1.0_amd64.deb
+curl -LO https://github.com/hungryZoo/tu/releases/latest/download/tu_1.1.1_amd64.deb
+sudo dpkg -i tu_1.1.1_amd64.deb
 
 # ARM64 (Pi 4/5 64-bit OS, AWS Graviton, …)
-curl -LO https://github.com/hungryZoo/tu/releases/latest/download/tu_1.1.0_arm64.deb
-sudo dpkg -i tu_1.1.0_arm64.deb
+curl -LO https://github.com/hungryZoo/tu/releases/latest/download/tu_1.1.1_arm64.deb
+sudo dpkg -i tu_1.1.1_arm64.deb
 
 # ARMv7 (32-bit Raspberry Pi OS)
-curl -LO https://github.com/hungryZoo/tu/releases/latest/download/tu_1.1.0_armhf.deb
-sudo dpkg -i tu_1.1.0_armhf.deb
+curl -LO https://github.com/hungryZoo/tu/releases/latest/download/tu_1.1.1_armhf.deb
+sudo dpkg -i tu_1.1.1_armhf.deb
 ```
 
 `.rpm` (Fedora, RHEL, CentOS, openSUSE, …):
 
 ```bash
 # x86_64
-sudo rpm -i https://github.com/hungryZoo/tu/releases/latest/download/tu-1.1.0-1.x86_64.rpm
+sudo rpm -i https://github.com/hungryZoo/tu/releases/latest/download/tu-1.1.1-1.x86_64.rpm
 
 # ARM64
-sudo rpm -i https://github.com/hungryZoo/tu/releases/latest/download/tu-1.1.0-1.aarch64.rpm
+sudo rpm -i https://github.com/hungryZoo/tu/releases/latest/download/tu-1.1.1-1.aarch64.rpm
 ```
 
 ### Manual — tarball
@@ -136,7 +136,7 @@ unpack it, and copy the binary somewhere on `PATH` — no sudo
 needed if you use a user-writable directory:
 
 ```bash
-tar -xzf tu-1.1.0-<triple>.tar.gz
+tar -xzf tu-1.1.1-<triple>.tar.gz
 mkdir -p ~/.local/bin
 install -m 0755 tu ~/.local/bin/tu
 ```
@@ -151,10 +151,31 @@ Triples available:
 | `x86_64-unknown-linux-musl`     | Linux x86_64, fully static                      |
 | `aarch64-unknown-linux-gnu`     | Linux ARM64 (Raspberry Pi 3/4/5 in 64-bit OS)   |
 | `aarch64-unknown-linux-musl`    | Linux ARM64, fully static                       |
-| `armv7-unknown-linux-gnueabihf` | Raspberry Pi 2/3/4/5 running 32-bit Pi OS       |
+| `armv7-unknown-linux-gnueabihf` | 32-bit ARMv7 boards (Pi 2 and up on 32-bit OS)  |
+| `arm-unknown-linux-gnueabihf`   | 32-bit ARMv6: Raspberry Pi 1, Zero, Zero W      |
 
 `musl` builds are statically linked and need nothing on the host;
 `gnu` builds are smaller but require glibc ≥ 2.17.
+
+#### Raspberry Pi cheat sheet
+
+Which asset you need depends on the SoC *and* on whether you run a
+64-bit or 32-bit Raspberry Pi OS. The `armhf` `.deb` is built from
+the ARMv6 binary, so it installs on every 32-bit Pi OS.
+
+| Model                                   | SoC     | CPU                    | 64-bit OS                        | 32-bit OS                                          |
+| --------------------------------------- | ------- | ---------------------- | -------------------------------- | -------------------------------------------------- |
+| Pi 1 A/B/A+/B+, Zero, Zero W            | BCM2835 | ARM1176 (ARMv6)        | not available                    | `arm-unknown-linux-gnueabihf` / `armhf.deb`       |
+| Pi 2 B v1.1                             | BCM2836 | Cortex-A7 (ARMv7)      | not available                    | `armv7-unknown-linux-gnueabihf` / `armhf.deb`     |
+| Pi 2 B v1.2, Pi 3 B/B+/A+, Zero 2 W     | BCM2837 | Cortex-A53 (ARMv8)     | `aarch64-*` / `arm64.deb`        | `armv7-unknown-linux-gnueabihf` / `armhf.deb`     |
+| Pi 4 B, Pi 400, CM4                     | BCM2711 | Cortex-A72 (ARMv8)     | `aarch64-*` / `arm64.deb`        | `armv7-unknown-linux-gnueabihf` / `armhf.deb`     |
+| Pi 5, Pi 500, CM5                       | BCM2712 | Cortex-A76 (ARMv8.2)   | `aarch64-*` / `arm64.deb`        | `armv7-unknown-linux-gnueabihf` / `armhf.deb`     |
+
+`install.sh` picks the right one from `uname -m` (`aarch64`,
+`armv7l`, `armv6l`). A 32-bit Pi OS image on a Pi 4/5 boots a
+64-bit kernel, so `uname -m` reports `aarch64` there and the
+installer hands you the static `aarch64-unknown-linux-musl` build,
+which runs fine on that setup.
 
 ### Verifying
 
@@ -354,7 +375,7 @@ src/
 ### From GitHub Actions (the normal path)
 
 The [`release`](.github/workflows/release.yml) workflow does the
-whole thing on one Ubuntu runner: cross-builds all seven targets
+whole thing on one Ubuntu runner: cross-builds all eight targets
 with `cargo-zigbuild` (macOS included), packages tarballs +
 `.deb` + `.rpm` + `SHA256SUMS`, publishes the GitHub release, and
 commits the new checksums into `Formula/tu.rb` on `main`.
@@ -386,7 +407,7 @@ rustup target add \
   aarch64-apple-darwin x86_64-apple-darwin \
   x86_64-unknown-linux-gnu x86_64-unknown-linux-musl \
   aarch64-unknown-linux-gnu aarch64-unknown-linux-musl \
-  armv7-unknown-linux-gnueabihf
+  armv7-unknown-linux-gnueabihf arm-unknown-linux-gnueabihf
 ```
 
 Build every binary, then package tarballs + `.deb` + `.rpm` +
@@ -395,7 +416,7 @@ Build every binary, then package tarballs + `.deb` + `.rpm` +
 ```bash
 bash scripts/build-all.sh
 bash scripts/package-all.sh          # version comes from Cargo.toml
-scripts/update-formula.sh 1.1.0 dist/SHA256SUMS   # refresh the tap
+scripts/update-formula.sh 1.1.1 dist/SHA256SUMS   # refresh the tap
 ```
 
 ## Roadmap
