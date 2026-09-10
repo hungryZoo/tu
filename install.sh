@@ -4,7 +4,7 @@
 #   curl -fsSL https://raw.githubusercontent.com/hungryZoo/tu/main/install.sh | sh
 #
 # Environment:
-#   TU_VERSION=1.1.0     pin a release (default: latest on GitHub)
+#   TU_VERSION=1.1.1     pin a release (default: latest on GitHub)
 #   TU_INSTALL_DIR=...   install directory (default: ~/.local/bin)
 set -eu
 
@@ -67,7 +67,9 @@ detect_triple() {
             case "$arch" in
                 x86_64) echo "x86_64-unknown-linux-musl" ;;
                 aarch64|arm64) echo "aarch64-unknown-linux-musl" ;;
-                armv7l|armv6l) echo "armv7-unknown-linux-gnueabihf" ;;
+                armv7l) echo "armv7-unknown-linux-gnueabihf" ;;
+                # Pi 1 / Zero / Zero W: ARM1176 has no ARMv7 instructions.
+                armv6l) echo "arm-unknown-linux-gnueabihf" ;;
                 *) err "unsupported Linux architecture: $arch" ;;
             esac
             ;;

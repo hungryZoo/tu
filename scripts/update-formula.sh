@@ -2,7 +2,7 @@
 # Point Formula/tu.rb at a release: bump `version` and rewrite each
 # tarball url + sha256 from a SHA256SUMS file.
 #
-#   scripts/update-formula.sh 1.1.0 dist/SHA256SUMS
+#   scripts/update-formula.sh 1.1.1 dist/SHA256SUMS
 set -euo pipefail
 
 VERSION="${1:?usage: update-formula.sh VERSION SHA256SUMS}"
