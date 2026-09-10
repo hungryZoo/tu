@@ -19,7 +19,7 @@ use std::process::{Command, ExitCode};
 
 use clap::Parser;
 
-use tmuxui::{app, tmux};
+use tu::{app, tmux};
 
 #[derive(Parser)]
 #[command(

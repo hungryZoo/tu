@@ -1,5 +1,5 @@
 [package]
-name = "tmuxui"
+name = "tu"
 version = "1.1.1"
 edition = "2021"
 authors = ["hungryZoo <heonzoo.lee@gmail.com>"]
@@ -18,8 +18,8 @@ path = "src/main.rs"
 # --------------------------------------------------------------------
 # Distro packaging metadata.
 #
-# Both blocks share the same shape: name the binary `tu` (not the
-# crate name `tmuxui`), depend on `tmux` so the package manager
+# Both blocks share the same shape: name the package `tu` (same as the
+# crate and binary), depend on `tmux` so the package manager
 # pulls it for you, and ship the binary + license + README under
 # the usual /usr paths.
 # --------------------------------------------------------------------

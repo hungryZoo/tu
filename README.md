@@ -90,15 +90,17 @@ export PATH="$HOME/.local/bin:$PATH"
 `tmux` must be installed separately — the installer only ships
 the `tu` binary.
 
-### macOS — Homebrew tap
+### macOS / Linux — Homebrew tap
 
 ```bash
-brew tap hungryZoo/tu https://github.com/hungryZoo/tu
-brew install tu
+brew tap hungryZoo/tap
+brew install hungryZoo/tap/tu
 ```
 
-The tap covers both Apple Silicon and Intel Macs; Homebrew picks
-the right binary for you.
+The formula covers Apple Silicon and Intel Macs plus x86_64 / aarch64
+Linux; Homebrew picks the right binary for you. The same formula also
+lives in this repo, so `brew tap hungryZoo/tu https://github.com/hungryZoo/tu`
+works too.
 
 ### Linux — system packages (optional, needs sudo)
 
@@ -421,8 +423,8 @@ scripts/update-formula.sh 1.1.1 dist/SHA256SUMS   # refresh the tap
 
 ## Roadmap
 
-- [ ] Publish a proper Homebrew tap repo (`hungryZoo/homebrew-tu`)
-      with bottles per platform.
+- [x] Publish the formula in the shared tap repo (`hungryZoo/homebrew-tap`).
+- [ ] Bottles per platform.
 - [ ] AUR + Arch Linux packaging.
 - [ ] Self-hosted apt repo on GitHub Pages so `apt install tu`
       works on Debian / Raspberry Pi OS.
