@@ -822,7 +822,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "tu"
+name = "tmux-tu"
 version = "1.1.1"
 dependencies = [
  "clap",

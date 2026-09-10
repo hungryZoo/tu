@@ -1,5 +1,5 @@
 [package]
-name = "tu"
+name = "tmux-tu"
 version = "1.1.1"
 edition = "2021"
 authors = ["hungryZoo <heonzoo.lee@gmail.com>"]
@@ -10,22 +10,23 @@ repository = "https://github.com/hungryZoo/tu"
 keywords = ["tmux", "tui", "ratatui", "terminal"]
 categories = ["command-line-utilities"]
 readme = "README.md"
+exclude = ["assets/*", "scripts/*", ".github/*", "install.sh"]
 
 [[bin]]
-name = "tu"
+name = "tmux-tu"
 path = "src/main.rs"
 
 # --------------------------------------------------------------------
 # Distro packaging metadata.
 #
-# Both blocks share the same shape: name the package `tu` (same as the
-# crate and binary), depend on `tmux` so the package manager
+# Both blocks share the same shape: name the package `tu` (the crate on
+# crates.io is `tmux-tu`, the binary is `tu`), depend on `tmux` so the package manager
 # pulls it for you, and ship the binary + license + README under
 # the usual /usr paths.
 # --------------------------------------------------------------------
 
 [package.metadata.deb]
-name = "tu"
+name = "tmux-tu"
 maintainer = "hungryZoo <heonzoo.lee@gmail.com>"
 copyright = "2026, hungryZoo <heonzoo.lee@gmail.com>"
 license-file = ["LICENSE", "0"]
@@ -47,7 +48,7 @@ assets = [
 ]
 
 [package.metadata.generate-rpm]
-name = "tu"
+name = "tmux-tu"
 summary = "A tiny TUI menu on top of tmux"
 license = "MIT"
 url = "https://github.com/hungryZoo/tu"

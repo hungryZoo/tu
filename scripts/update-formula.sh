@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
-# Point Formula/tu.rb at a release: bump `version` and rewrite each
-# tarball url + sha256 from a SHA256SUMS file.
+# Point a Homebrew formula at a release: rewrite each tarball url +
+# sha256 from a SHA256SUMS file. The formula lives in the tap repo
+# (hungryZoo/homebrew-tap), not here, so pass its path:
 #
-#   scripts/update-formula.sh 1.1.1 dist/SHA256SUMS
+#   scripts/update-formula.sh 1.1.1 dist/SHA256SUMS ../homebrew-tap/Formula/tu.rb
 set -euo pipefail
 
-VERSION="${1:?usage: update-formula.sh VERSION SHA256SUMS}"
-SUMS="${2:?usage: update-formula.sh VERSION SHA256SUMS}"
-FORMULA="$(cd "$(dirname "$0")/.." && pwd)/Formula/tu.rb"
+VERSION="${1:?usage: update-formula.sh VERSION SHA256SUMS FORMULA}"
+SUMS="${2:?usage: update-formula.sh VERSION SHA256SUMS FORMULA}"
+FORMULA="${3:?usage: update-formula.sh VERSION SHA256SUMS FORMULA}"
+[ -f "$FORMULA" ] || { echo "no formula at $FORMULA" >&2; exit 1; }
 
 sha_for() {
     awk -v f="tu-$VERSION-$1.tar.gz" '$2 == f { print $1 }' "$SUMS"
@@ -33,5 +35,5 @@ open(path, "w").write(new)
 PY
 done
 
-sed -i.bak -E "s/^(  version \")[^\"]*(\")/\1$VERSION\2/" "$FORMULA" && rm -f "$FORMULA.bak"
-echo "Formula/tu.rb now points at v$VERSION"
+# Homebrew derives `version` from the url, so no explicit version stanza to bump.
+echo "$FORMULA now points at v$VERSION"

@@ -97,10 +97,17 @@ brew tap hungryZoo/tap
 brew install hungryZoo/tap/tu
 ```
 
-The formula covers Apple Silicon and Intel Macs plus x86_64 / aarch64
-Linux; Homebrew picks the right binary for you. The same formula also
-lives in this repo, so `brew tap hungryZoo/tu https://github.com/hungryZoo/tu`
-works too.
+The formula lives in [hungryZoo/homebrew-tap](https://github.com/hungryZoo/homebrew-tap)
+and covers Apple Silicon and Intel Macs plus x86_64 / aarch64 Linux;
+Homebrew picks the right binary for you.
+
+### From crates.io
+
+```bash
+cargo install tmux-tu
+```
+
+The crate is `tmux-tu` (plain `tu` was taken); the binary is still `tu`.
 
 ### Linux — system packages (optional, needs sudo)
 
@@ -379,8 +386,18 @@ src/
 The [`release`](.github/workflows/release.yml) workflow does the
 whole thing on one Ubuntu runner: cross-builds all eight targets
 with `cargo-zigbuild` (macOS included), packages tarballs +
-`.deb` + `.rpm` + `SHA256SUMS`, publishes the GitHub release, and
-commits the new checksums into `Formula/tu.rb` on `main`.
+`.deb` + `.rpm` + `SHA256SUMS`, publishes the GitHub release, pushes
+the new checksums to `Formula/tu.rb` in
+[hungryZoo/homebrew-tap](https://github.com/hungryZoo/homebrew-tap),
+and publishes the crate to crates.io.
+
+The last two steps need repository secrets and are skipped with a
+warning when they are missing:
+
+| Secret | What it is |
+|---|---|
+| `HOMEBREW_TAP_TOKEN` | Fine-grained GitHub PAT scoped to `hungryZoo/homebrew-tap`, Contents: read/write |
+| `CARGO_REGISTRY_TOKEN` | crates.io API token with publish scope |
 
 To cut a release:
 
@@ -423,7 +440,7 @@ scripts/update-formula.sh 1.1.1 dist/SHA256SUMS   # refresh the tap
 
 ## Roadmap
 
-- [x] Publish the formula in the shared tap repo (`hungryZoo/homebrew-tap`).
+- [x] Formula lives in the shared tap repo (`hungryZoo/homebrew-tap`).
 - [ ] Bottles per platform.
 - [ ] AUR + Arch Linux packaging.
 - [ ] Self-hosted apt repo on GitHub Pages so `apt install tu`
