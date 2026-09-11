@@ -105,26 +105,26 @@ The crate is `tmux-tu` (plain `tu` was taken); the binary is still `tu`.
 
 ```bash
 # x86_64
-curl -LO https://github.com/hungryZoo/tu/releases/latest/download/tu_1.1.1_amd64.deb
-sudo dpkg -i tu_1.1.1_amd64.deb
+curl -LO https://github.com/hungryZoo/tu/releases/latest/download/tu_amd64.deb
+sudo dpkg -i tu_amd64.deb
 
 # ARM64 (Pi 4/5 64-bit OS, AWS Graviton, …)
-curl -LO https://github.com/hungryZoo/tu/releases/latest/download/tu_1.1.1_arm64.deb
-sudo dpkg -i tu_1.1.1_arm64.deb
+curl -LO https://github.com/hungryZoo/tu/releases/latest/download/tu_arm64.deb
+sudo dpkg -i tu_arm64.deb
 
 # ARMv7 (32-bit Raspberry Pi OS)
-curl -LO https://github.com/hungryZoo/tu/releases/latest/download/tu_1.1.1_armhf.deb
-sudo dpkg -i tu_1.1.1_armhf.deb
+curl -LO https://github.com/hungryZoo/tu/releases/latest/download/tu_armhf.deb
+sudo dpkg -i tu_armhf.deb
 ```
 
 `.rpm` (Fedora, RHEL, CentOS, openSUSE, …):
 
 ```bash
 # x86_64
-sudo rpm -i https://github.com/hungryZoo/tu/releases/latest/download/tu-1.1.1-1.x86_64.rpm
+sudo rpm -i https://github.com/hungryZoo/tu/releases/latest/download/tu-x86_64.rpm
 
 # ARM64
-sudo rpm -i https://github.com/hungryZoo/tu/releases/latest/download/tu-1.1.1-1.aarch64.rpm
+sudo rpm -i https://github.com/hungryZoo/tu/releases/latest/download/tu-aarch64.rpm
 ```
 
 ### Manual — tarball

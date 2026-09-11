@@ -3,6 +3,10 @@
 #   tu-<ver>-<triple>.tar.gz  (contains: tu, README.md, LICENSE)
 #   tu_<ver>_<arch>.deb       (amd64 / arm64 / armhf)
 #   tu-<ver>-1.<arch>.rpm     (x86_64 / aarch64)
+#   tu_<arch>.deb, tu-<arch>.rpm
+#                             version-less copies so README install
+#                             commands can point at releases/latest
+#                             without a bump on every release
 #   SHA256SUMS                (covers every file above)
 set -euo pipefail
 
@@ -76,6 +80,23 @@ for t in "${RPM_TARGETS[@]}"; do
     fi
     cargo generate-rpm --target "$t" --output "$DIST_DIR" >/dev/null
     echo "    $DIST_DIR/$(ls -t "$DIST_DIR" | grep "\.rpm$" | head -1)"
+done
+
+echo ">>> version-less package aliases"
+# GitHub serves /releases/latest/download/<name> for any asset name, so
+# a stable name lets the README stay correct across releases. The
+# package metadata inside still carries the real version.
+for f in "$DIST_DIR"/tu_"$VERSION"_*.deb; do
+    [[ -f "$f" ]] || continue
+    alias="$DIST_DIR/tu_${f##*_}"
+    cp "$f" "$alias"
+    echo "    $alias"
+done
+for f in "$DIST_DIR"/tu-"$VERSION"-1.*.rpm; do
+    [[ -f "$f" ]] || continue
+    alias="$DIST_DIR/tu-${f##*-1.}"
+    cp "$f" "$alias"
+    echo "    $alias"
 done
 
 echo ">>> install.sh"
