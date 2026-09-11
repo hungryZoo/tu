@@ -7,14 +7,18 @@ List, create, attach, detach, or delete sessions — Just type ***tu***
 
 [![Release](https://img.shields.io/github/v/release/hungryZoo/tu?style=flat-square&color=cba6f7&labelColor=1e1e2e)](https://github.com/hungryZoo/tu/releases/latest)
 [![License](https://img.shields.io/badge/license-MIT-89b4fa?style=flat-square&labelColor=1e1e2e)](LICENSE)
-[![Platforms](https://img.shields.io/badge/platforms-macOS%20%C2%B7%20Linux%20%C2%B7%20Pi-a6e3a1?style=flat-square&labelColor=1e1e2e)](#2-installation)
-[![Built with ratatui](https://img.shields.io/badge/built%20with-ratatui-fab387?style=flat-square&labelColor=1e1e2e)](https://github.com/ratatui-org/ratatui)
+[![Built with Rust + ratatui](https://img.shields.io/badge/built%20with-Rust%20%C2%B7%20ratatui-fab387?style=flat-square&logo=rust&logoColor=white&labelColor=1e1e2e)](https://github.com/ratatui-org/ratatui)
 
 <br/>
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/hungryZoo/tu/main/install.sh | sh
 ```
+
+[![macOS](https://img.shields.io/badge/macOS-Apple%20Silicon%20%C2%B7%20Intel-f5c2e7?style=flat-square&logo=apple&logoColor=white&labelColor=1e1e2e)](#6-platform-support)
+[![Raspberry Pi](https://img.shields.io/badge/Raspberry%20Pi-1%20%C2%B7%202%20%C2%B7%203%20%C2%B7%204%20%C2%B7%205%20%C2%B7%20Zero-f38ba8?style=flat-square&logo=raspberrypi&logoColor=white&labelColor=1e1e2e)](#raspberry-pi-cheat-sheet)<br/>
+[![Debian / Ubuntu](https://img.shields.io/badge/Debian%20%C2%B7%20Ubuntu-.deb%20%20x86__64%20%C2%B7%20ARM64%20%C2%B7%20armhf-f9e2af?style=flat-square&logo=debian&logoColor=white&labelColor=1e1e2e)](#linux-packages-deb--rpm)
+[![Fedora / RHEL / openSUSE](https://img.shields.io/badge/Fedora%20%C2%B7%20RHEL%20%C2%B7%20openSUSE-.rpm%20%20x86__64%20%C2%B7%20ARM64-a6e3a1?style=flat-square&logo=fedora&logoColor=white&labelColor=1e1e2e)](#linux-packages-deb--rpm)
 
 <img src="assets/main.png" alt="tu running inside tmux, showing the session list and action buttons" width="780" />
 
