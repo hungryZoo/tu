@@ -3,8 +3,7 @@
 # `tu`
 
 **A tiny TUI menu on top of `tmux`.**
-List, create, attach, detach, or delete sessions — keyboard
-*and* mouse, no prefix-key gymnastics.
+List, create, attach, detach, or delete sessions — Just type ***tu***
 
 [![Release](https://img.shields.io/github/v/release/hungryZoo/tu?style=flat-square&color=cba6f7&labelColor=1e1e2e)](https://github.com/hungryZoo/tu/releases/latest)
 [![License](https://img.shields.io/badge/license-MIT-89b4fa?style=flat-square&labelColor=1e1e2e)](LICENSE)
@@ -13,13 +12,17 @@ List, create, attach, detach, or delete sessions — keyboard
 
 <br/>
 
+```bash
+curl -fsSL https://raw.githubusercontent.com/hungryZoo/tu/main/install.sh | sh
+```
+
 <img src="assets/main.png" alt="tu running inside tmux, showing the session list and action buttons" width="780" />
 
 </div>
 
 ---
 
-`tu` is a single ~1.5 MB binary that opens a small picker over your
+`tu` is a single ~2 MB binary that opens a small picker over your
 running `tmux` sessions. Pick one to attach, double-click to dive in,
 **n** to spawn a fresh session, **d** to detach the current client,
 **Backspace** to kill a session (with a confirmation). Run it from a
@@ -28,7 +31,7 @@ or click the **tu** button it puts on your tmux status bar.
 
 <div align="center">
 
-<img src="assets/demo.webp" alt="tu demo: launch from parent shell, browse sessions, attach, then run tu again to detach back" width="780" />
+https://github.com/user-attachments/assets/5b21f9cb-f9f2-415b-bd92-b067b938dbf6
 
 </div>
 
@@ -65,29 +68,16 @@ or click the **tu** button it puts on your tmux status bar.
 
 ## Install
 
-### Quick install (macOS & Linux, no sudo)
-
-Detects your OS/arch, downloads the matching release binary, and
-installs it to `~/.local/bin`:
+### Quick install (Recommendation) (macOS & Linux, no sudo)
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/hungryZoo/tu/main/install.sh | sh
 ```
+Detects your OS/arch, downloads the matching release binary, and
+installs it to `~/.local/bin`:
 
-Pin a version or pick a different directory:
 
-```bash
-TU_VERSION=1.1.1 TU_INSTALL_DIR=~/bin curl -fsSL .../install.sh | sh
-```
-
-If `~/.local/bin` is not on your `PATH` yet, add this to
-`~/.zshrc` / `~/.bashrc`:
-
-```bash
-export PATH="$HOME/.local/bin:$PATH"
-```
-
-`tmux` must be installed separately — the installer only ships
+> `tmux` must be installed separately — the installer only ships
 the `tu` binary.
 
 ### macOS / Linux — Homebrew tap
