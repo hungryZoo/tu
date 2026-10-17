@@ -348,6 +348,20 @@ keystroke can't nuke anything.
 > On Mac keyboards the key labelled *delete* is Backspace, which
 > is exactly what `tu` listens for. **fn + delete** works too.
 
+### The button row
+
+Six buttons, one row, however wide the terminal is. The row picks the
+widest form that fits and the shortcut key is always in yellow:
+
+| Available width | Form                                   |
+| --------------- | -------------------------------------- |
+| ≥ 91 cells      | `New (n)` … `Delete (Bksp)`            |
+| ≥ 71 cells      | `New` … `Cancel Esc`, `Delete Bksp` (initial highlighted) |
+| ≥ 40 cells      | bordered keys only: `N` `A` `R` `D` `Esc` `Bksp` |
+| narrower        | bare keys in the button's own colour; focus and hover still fill the cell |
+
+An 80-column pane (76 usable cells) gets the second form.
+
 ### Keyboard & mouse reference
 
 | Key                         | Action                                   |
@@ -497,8 +511,9 @@ Failures (offline, no `curl`, rate limits) are silent and retried a
 day later. `tu --check-update` runs the same check immediately,
 prints the verdict and the upgrade hint, refreshes the cache, and
 exits with 0 (up to date), 10 (update available) or 11 (unreachable),
-so it also works from scripts. The note never covers an error message or an action
-result; on narrow terminals it replaces the idle hint instead.
+so it also works from scripts. The note never covers an error message
+or an action result; the status row is otherwise empty, so the note
+has the row to itself on narrow terminals.
 
 <p align="right"><a href="#table-of-contents">↑ back to top</a></p>
 

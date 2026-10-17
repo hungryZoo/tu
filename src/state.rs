@@ -47,11 +47,22 @@ impl ButtonId {
         BUTTON_ORDER.iter().position(|&b| b == self).unwrap()
     }
 
-    /// Button text split as (before, key, after). `key` is drawn in
-    /// the hint colour. For letter shortcuts it is the word's own
-    /// initial, so it costs no width; Esc and Backspace are appended
-    /// as a short token. Six buttons fit in 71 cells this way.
-    pub fn label_parts(self) -> (&'static str, &'static str, &'static str) {
+    /// Widest form, `Word (key)`: six of these need 91 cells.
+    pub fn full_parts(self) -> (&'static str, &'static str, &'static str) {
+        match self {
+            ButtonId::New => ("New (", "n", ")"),
+            ButtonId::Attach => ("Attach (", "a", ")"),
+            ButtonId::Rename => ("Rename (", "r", ")"),
+            ButtonId::Detach => ("Detach (", "d", ")"),
+            ButtonId::Cancel => ("Cancel (", "Esc", ")"),
+            ButtonId::Delete => ("Delete (", "Bksp", ")"),
+        }
+    }
+
+    /// Word only, with the shortcut shown in place: the initial for
+    /// letter keys, a short token after the word for Esc / Backspace.
+    /// Six of these need 71 cells, which fits an 80-column pane.
+    pub fn word_parts(self) -> (&'static str, &'static str, &'static str) {
         match self {
             ButtonId::New => ("", "N", "ew"),
             ButtonId::Attach => ("", "A", "ttach"),
@@ -62,9 +73,21 @@ impl ButtonId {
         }
     }
 
-    /// Plain text of the button, for width math and tests.
+    /// Just the key, for the two narrowest tiers.
+    pub fn key_only(self) -> &'static str {
+        match self {
+            ButtonId::New => "N",
+            ButtonId::Attach => "A",
+            ButtonId::Rename => "R",
+            ButtonId::Detach => "D",
+            ButtonId::Cancel => "Esc",
+            ButtonId::Delete => "Bksp",
+        }
+    }
+
+    /// Plain text of the word tier, for tests.
     pub fn label(self) -> String {
-        let (a, k, b) = self.label_parts();
+        let (a, k, b) = self.word_parts();
         format!("{a}{k}{b}")
     }
 
@@ -208,7 +231,6 @@ impl AppState {
     pub fn new(inside_tmux: bool) -> Self {
         Self {
             inside_tmux,
-            status_message: initial_status(inside_tmux).to_string(),
             ..Default::default()
         }
     }
@@ -377,14 +399,6 @@ impl AppState {
         if self.list_offset > max_offset {
             self.list_offset = max_offset;
         }
-    }
-}
-
-pub fn initial_status(inside_tmux: bool) -> &'static str {
-    if inside_tmux {
-        "Inside tmux · Detach (d) returns to the parent shell"
-    } else {
-        "Outside tmux · selecting a session hands the terminal over to tmux"
     }
 }
 

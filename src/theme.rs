@@ -240,6 +240,19 @@ pub fn list_empty_style() -> Style {
 
 // ----------------------------------------------------- hint + status
 
+/// Narrowest tier: no border, just the key. It takes the colour the
+/// border would have had, and the same fill as a boxed button so a
+/// hovered / focused key still shows as a grey block (accent when
+/// pressed, muted when disabled).
+pub fn bare_button_style(accent: Color, visual: ButtonVisual) -> Style {
+    let boxed = button_style(accent, visual);
+    match visual {
+        ButtonVisual::Pressed => boxed.label,
+        ButtonVisual::Disabled => boxed.label,
+        _ => boxed.border.add_modifier(Modifier::BOLD),
+    }
+}
+
 /// The shortcut key inside a button label: the hint-bar yellow, bold,
 /// on the button's own fill so it reads as part of the label.
 pub fn button_key_style(label: Style) -> Style {
@@ -254,10 +267,13 @@ pub fn status_info_style() -> Style {
 }
 
 pub fn status_update_style() -> Style {
+    // Drawn over the info message, whose italic would otherwise bleed
+    // through (ratatui patches modifiers rather than replacing them).
     Style::default()
         .fg(palette::PEACH)
         .bg(palette::BASE)
         .add_modifier(Modifier::BOLD)
+        .remove_modifier(Modifier::ITALIC)
 }
 
 pub fn status_error_style() -> Style {

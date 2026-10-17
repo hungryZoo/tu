@@ -9,8 +9,7 @@ use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use ratatui::Frame;
 
 use crate::state::{
-    initial_status, AppState, ButtonId, ConfFocus, DeleteFocus, Focus, HitTarget, Screen,
-    StatusKind, BUTTON_ORDER,
+    AppState, ButtonId, ConfFocus, DeleteFocus, Focus, HitTarget, Screen, StatusKind, BUTTON_ORDER,
 };
 use crate::theme::{self, palette, ButtonVisual};
 
@@ -217,16 +216,63 @@ fn render_session_list(f: &mut Frame, area: Rect, state: &mut AppState) {
 
 // --------------------------------------------------------- buttons
 
-fn render_buttons(f: &mut Frame, area: Rect, state: &mut AppState) {
-    // Six buttons, 71 cells with one column between them: fits the 76
-    // usable cells of an 80-column pane.
-    let spacer: u16 = 1;
-    let widths: Vec<u16> = BUTTON_ORDER
-        .iter()
-        .map(|b| (b.label().chars().count() as u16) + 4)
-        .collect();
+/// How much of each button we can afford at the current width.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ButtonTier {
+    /// `New (n)` — key inside parentheses, highlighted.
+    Full,
+    /// `New` with its initial highlighted; `Cancel Esc`, `Delete Bksp`.
+    Word,
+    /// Bordered box holding only the key: `N`, `Esc`.
+    KeyBoxed,
+    /// No border; the key alone in the button's accent colour.
+    KeyBare,
+}
 
-    let total: u16 = widths.iter().sum::<u16>() + spacer * (BUTTON_ORDER.len() as u16 - 1);
+const BUTTON_SPACER: u16 = 1;
+
+/// Cell widths of the six buttons at a tier (borders / padding included).
+fn tier_widths(tier: ButtonTier) -> Vec<u16> {
+    BUTTON_ORDER
+        .iter()
+        .map(|b| {
+            let text = match tier {
+                ButtonTier::Full => {
+                    let (a, k, c) = b.full_parts();
+                    a.chars().count() + k.chars().count() + c.chars().count()
+                }
+                ButtonTier::Word => b.label().chars().count(),
+                ButtonTier::KeyBoxed | ButtonTier::KeyBare => b.key_only().chars().count(),
+            } as u16;
+            match tier {
+                ButtonTier::KeyBare => text + 2, // one space each side, no border
+                _ => text + 4,                   // border + one space each side
+            }
+        })
+        .collect()
+}
+
+fn tier_total(tier: ButtonTier) -> u16 {
+    tier_widths(tier).iter().sum::<u16>() + BUTTON_SPACER * (BUTTON_ORDER.len() as u16 - 1)
+}
+
+/// Widest tier that fits; KeyBare when nothing does.
+pub fn button_tier(width: u16) -> ButtonTier {
+    [
+        ButtonTier::Full,
+        ButtonTier::Word,
+        ButtonTier::KeyBoxed,
+        ButtonTier::KeyBare,
+    ]
+    .into_iter()
+    .find(|t| tier_total(*t) <= width)
+    .unwrap_or(ButtonTier::KeyBare)
+}
+
+fn render_buttons(f: &mut Frame, area: Rect, state: &mut AppState) {
+    let tier = button_tier(area.width);
+    let widths = tier_widths(tier);
+    let total = tier_total(tier);
     let start_x = if total <= area.width {
         area.x + (area.width - total) / 2
     } else {
@@ -240,18 +286,46 @@ fn render_buttons(f: &mut Frame, area: Rect, state: &mut AppState) {
             state.geom.buttons[i] = None;
             continue;
         }
-        let rect = Rect::new(x, area.y, w, area.height);
-        state.geom.buttons[i] = Some(rect);
         let visual = button_visual(state, *button);
         let style = theme::button_style(button.accent(), visual);
-        let (before, key, after) = button.label_parts();
-        let line = Line::from(vec![
-            Span::styled(before, style.label),
-            Span::styled(key, theme::button_key_style(style.label)),
-            Span::styled(after, style.label),
-        ]);
-        render_button_frame(f, rect, line, &style);
-        x += widths[i] + spacer;
+        let key_style = theme::button_key_style(style.label);
+        match tier {
+            ButtonTier::Full | ButtonTier::Word => {
+                let rect = Rect::new(x, area.y, w, area.height);
+                state.geom.buttons[i] = Some(rect);
+                let (before, key, after) = if tier == ButtonTier::Full {
+                    button.full_parts()
+                } else {
+                    button.word_parts()
+                };
+                let line = Line::from(vec![
+                    Span::styled(before, style.label),
+                    Span::styled(key, key_style),
+                    Span::styled(after, style.label),
+                ]);
+                render_button_frame(f, rect, line, &style);
+            }
+            ButtonTier::KeyBoxed => {
+                let rect = Rect::new(x, area.y, w, area.height);
+                state.geom.buttons[i] = Some(rect);
+                let line = Line::from(Span::styled(button.key_only(), key_style));
+                render_button_frame(f, rect, line, &style);
+            }
+            ButtonTier::KeyBare => {
+                // One row, vertically centred in the 3-row button band.
+                // The key wears the accent the border would have had;
+                // hover / focus / pressed keep their fill so the cursor
+                // position still reads as a grey (or accent) block.
+                let rect = Rect::new(x, area.y + area.height / 2, w, 1);
+                state.geom.buttons[i] = Some(rect);
+                let text_style = theme::bare_button_style(button.accent(), visual);
+                let p = Paragraph::new(button.key_only())
+                    .style(text_style)
+                    .alignment(Alignment::Center);
+                f.render_widget(p, rect);
+            }
+        }
+        x += widths[i] + BUTTON_SPACER;
     }
 }
 
@@ -318,8 +392,7 @@ fn render_status(f: &mut Frame, area: Rect, state: &mut AppState) {
     let msg_w = state.status_message.chars().count() as u16;
     let note_w = notice.map(|n| n.chars().count() as u16).unwrap_or(0);
     let fits_beside = note_w > 0 && msg_w + 2 + note_w <= area.width;
-    let is_idle = matches!(state.status_kind, StatusKind::Info)
-        && state.status_message == initial_status(state.inside_tmux);
+    let is_idle = matches!(state.status_kind, StatusKind::Info) && state.status_message.is_empty();
 
     // The update note never hides an error or an action result. It
     // sits right-aligned next to the message when there's room, and
@@ -684,4 +757,25 @@ fn centered_rect(width: u16, height: u16, area: Rect) -> Rect {
     let x = area.x + (area.width.saturating_sub(w)) / 2;
     let y = area.y + (area.height.saturating_sub(h)) / 2;
     Rect::new(x, y, w, h)
+}
+
+#[cfg(test)]
+mod tier_tests {
+    use super::*;
+
+    #[test]
+    fn tier_follows_available_width() {
+        assert_eq!(tier_total(ButtonTier::Full), 91);
+        assert_eq!(tier_total(ButtonTier::Word), 71);
+        assert_eq!(tier_total(ButtonTier::KeyBoxed), 40);
+        assert_eq!(tier_total(ButtonTier::KeyBare), 28);
+        assert_eq!(button_tier(120), ButtonTier::Full);
+        assert_eq!(button_tier(91), ButtonTier::Full);
+        assert_eq!(button_tier(90), ButtonTier::Word);
+        assert_eq!(button_tier(76), ButtonTier::Word);
+        assert_eq!(button_tier(70), ButtonTier::KeyBoxed);
+        assert_eq!(button_tier(40), ButtonTier::KeyBoxed);
+        assert_eq!(button_tier(39), ButtonTier::KeyBare);
+        assert_eq!(button_tier(10), ButtonTier::KeyBare);
+    }
 }
