@@ -57,6 +57,7 @@ pub fn render(f: &mut Frame, state: &mut AppState) {
         Screen::Rename { original, input } => {
             Some(ModalSnapshot::Rename(original.clone(), input.clone()))
         }
+        Screen::Update { plan } => Some(ModalSnapshot::Update(plan.clone())),
         Screen::ConfSetup { items, focus } => {
             let lines: Vec<String> = items.iter().flat_map(|i| i.lines()).collect();
             Some(ModalSnapshot::Conf(lines, *focus))
@@ -72,6 +73,7 @@ pub fn render(f: &mut Frame, state: &mut AppState) {
             ModalSnapshot::Rename(original, input) => {
                 render_rename(f, area, state, &original, &input);
             }
+            ModalSnapshot::Update(plan) => render_update(f, area, state, &plan),
             ModalSnapshot::Conf(lines, focus) => {
                 render_conf_setup(f, area, state, &lines, focus);
             }
@@ -88,6 +90,7 @@ pub fn render(f: &mut Frame, state: &mut AppState) {
 enum ModalSnapshot {
     Delete(String, DeleteFocus),
     Rename(String, String),
+    Update(crate::update::UpdatePlan),
     Conf(Vec<String>, ConfFocus),
     Notice(String),
 }
@@ -305,7 +308,8 @@ fn render_button_frame(f: &mut Frame, area: Rect, label: Line, style: &theme::Bu
 
 // ---------------------------------------------------- status
 
-fn render_status(f: &mut Frame, area: Rect, state: &AppState) {
+fn render_status(f: &mut Frame, area: Rect, state: &mut AppState) {
+    state.geom.update_notice = None;
     let style = match state.status_kind {
         StatusKind::Info => theme::status_info_style(),
         StatusKind::Error => theme::status_error_style(),
@@ -323,6 +327,7 @@ fn render_status(f: &mut Frame, area: Rect, state: &AppState) {
     if let Some(n) = notice.filter(|_| !fits_beside && is_idle) {
         let p = Paragraph::new(n.to_string()).style(theme::status_update_style());
         f.render_widget(p, area);
+        state.geom.update_notice = Some(Rect::new(area.x, area.y, note_w.min(area.width), 1));
         return;
     }
     let p = Paragraph::new(state.status_message.clone()).style(style);
@@ -333,6 +338,7 @@ fn render_status(f: &mut Frame, area: Rect, state: &AppState) {
         let rect = Rect::new(area.x + area.width - note_w, area.y, note_w, area.height);
         let p = Paragraph::new(n.to_string()).style(theme::status_update_style());
         f.render_widget(p, rect);
+        state.geom.update_notice = Some(rect);
     }
 }
 
@@ -408,6 +414,82 @@ fn render_rename(f: &mut Frame, area: Rect, state: &mut AppState, original: &str
         false,
         true,
     );
+}
+
+fn render_update(
+    f: &mut Frame,
+    area: Rect,
+    state: &mut AppState,
+    plan: &crate::update::UpdatePlan,
+) {
+    let title = " Update tu ".to_string();
+    let command = plan.command();
+    let mut body = vec![
+        Line::from(""),
+        Line::from(Span::styled(
+            format!("tu {}  →  {}", crate::update::CURRENT_VERSION, plan.latest),
+            theme::modal_body_style(),
+        )),
+        Line::from(Span::styled(
+            format!("installed via {}", plan.method.describe()),
+            theme::modal_subtle_style(),
+        )),
+        Line::from(""),
+    ];
+    match &command {
+        Some(cmd) => {
+            body.push(Line::from(Span::styled(
+                "tu will close and run:",
+                theme::modal_body_style(),
+            )));
+            body.push(Line::from(Span::styled(
+                format!("  {}", shorten(cmd, 70)),
+                theme::modal_directive_style(),
+            )));
+            body.push(Line::from(""));
+            body.push(Line::from(Span::styled(
+                "Enter updates · Esc later",
+                theme::modal_subtle_style(),
+            )));
+        }
+        None => {
+            body.push(Line::from(Span::styled(
+                "Download the new version from",
+                theme::modal_body_style(),
+            )));
+            body.push(Line::from(Span::styled(
+                format!("  {}", crate::update::LATEST_URL),
+                theme::modal_directive_style(),
+            )));
+        }
+    }
+    let (secondary, accent) = if command.is_some() {
+        ("Update (Enter)", palette::GREEN)
+    } else {
+        ("OK", palette::OVERLAY1)
+    };
+    render_modal(
+        f,
+        area,
+        state,
+        &title,
+        body,
+        ("Later (Esc)", palette::OVERLAY1),
+        (secondary, accent),
+        false,
+        true,
+    );
+}
+
+/// Trim a long shell command for display, keeping the start.
+fn shorten(s: &str, max: usize) -> String {
+    let flat = s.replace('\n', " ");
+    if flat.chars().count() <= max {
+        flat
+    } else {
+        let head: String = flat.chars().take(max - 1).collect();
+        format!("{head}…")
+    }
 }
 
 fn render_conf_setup(

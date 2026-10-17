@@ -12,6 +12,7 @@ use ratatui::layout::{Position, Rect};
 
 use crate::conf_setup::ConfItem;
 use crate::models::Session;
+use crate::update::UpdatePlan;
 
 /// Two clicks on the *same* hit target within this window count as a
 /// double-click. 450 ms matches macOS' default Finder threshold and
@@ -116,6 +117,11 @@ pub enum Screen {
         original: String,
         input: String,
     },
+    /// "A newer tu exists" modal. Confirming stores the upgrade command
+    /// in `post_exit_command`; `main` runs it after the TUI is torn down.
+    Update {
+        plan: UpdatePlan,
+    },
     ConfSetup {
         items: Vec<ConfItem>,
         focus: ConfFocus,
@@ -137,6 +143,8 @@ pub enum HitTarget {
     ListRow(usize),
     ModalPrimary,
     ModalSecondary,
+    /// The "vX.Y.Z available" note on the status row.
+    UpdateNotice,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -155,6 +163,7 @@ pub struct Geometry {
     pub list_inner: Option<Rect>,
     pub modal_primary: Option<Rect>,
     pub modal_secondary: Option<Rect>,
+    pub update_notice: Option<Rect>,
 }
 
 /// Remembers the previous click so the next one can be classified as
@@ -186,9 +195,13 @@ pub struct AppState {
     /// "vX.Y.Z available · how to upgrade", shown right-aligned on the
     /// status row. Filled from the update-check cache at startup.
     pub update_notice: Option<String>,
+    /// The plan behind `update_notice`, for the Update modal.
+    pub update_plan: Option<UpdatePlan>,
 
     pub should_exit: bool,
     pub post_exit_argv: Option<Vec<String>>,
+    /// Shell command `main` runs after the TUI exits (the upgrade).
+    pub post_exit_command: Option<String>,
 }
 
 impl AppState {
@@ -308,6 +321,11 @@ impl AppState {
                 if r.contains(pos) {
                     return Some(HitTarget::Button(BUTTON_ORDER[i]));
                 }
+            }
+        }
+        if let Some(r) = self.geom.update_notice {
+            if r.contains(pos) {
+                return Some(HitTarget::UpdateNotice);
             }
         }
 

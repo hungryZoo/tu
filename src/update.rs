@@ -171,7 +171,7 @@ pub fn version_from_release_url(url: &str) -> Option<String> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CheckOutcome {
     /// Newest release is newer than this binary.
-    UpdateAvailable { latest: String, hint: &'static str },
+    UpdateAvailable { latest: String, hint: String },
     /// This binary is the newest release (or newer than any release).
     UpToDate { latest: String },
     /// Could not reach GitHub, or `curl` is missing.
@@ -248,30 +248,182 @@ pub fn maybe_spawn_check() {
 
 // ----------------------------------------------------------- notice
 
-/// How to upgrade, guessed from where this binary lives.
-pub fn upgrade_hint_for(exe: &Path, home: Option<&Path>) -> &'static str {
+/// Where this binary came from, guessed from its path. Decides both
+/// the one-line hint and the command `tu --update` / the Update modal
+/// run.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum InstallMethod {
+    Brew,
+    Cargo,
+    /// install.sh (or a hand-copied tarball) into a user-writable dir.
+    Script {
+        bin_dir: PathBuf,
+    },
+    Deb {
+        arch: &'static str,
+    },
+    Rpm {
+        arch: &'static str,
+    },
+    Unknown,
+}
+
+/// Debian / RPM architecture names for the release packages.
+pub fn package_arch(machine: &str) -> Option<(&'static str, &'static str)> {
+    match machine {
+        "x86_64" | "amd64" => Some(("amd64", "x86_64")),
+        "aarch64" | "arm64" => Some(("arm64", "aarch64")),
+        "armv7l" | "armv6l" => Some(("armhf", "")),
+        _ => None,
+    }
+}
+
+/// Pure classifier. `has_dpkg` / `has_rpm` say whether the host's
+/// package database exists; `machine` is `uname -m`.
+pub fn classify_install(
+    exe: &Path,
+    home: Option<&Path>,
+    has_dpkg: bool,
+    has_rpm: bool,
+    machine: &str,
+) -> InstallMethod {
     let s = exe.to_string_lossy();
     if s.contains("/Cellar/") || s.contains("/homebrew/") || s.contains("/linuxbrew/") {
-        return "brew upgrade tu";
+        return InstallMethod::Brew;
     }
     if let Some(home) = home {
         if exe.starts_with(home.join(".cargo").join("bin")) {
-            return "cargo install tmux-tu";
+            return InstallMethod::Cargo;
         }
-        if exe.starts_with(home.join(".local").join("bin")) || exe.starts_with(home.join("bin")) {
-            return "re-run install.sh";
+        if exe.starts_with(home) {
+            if let Some(dir) = exe.parent() {
+                return InstallMethod::Script {
+                    bin_dir: dir.to_path_buf(),
+                };
+            }
         }
     }
-    if s.starts_with("/usr/bin/") {
-        return "github.com/hungryZoo/tu/releases/latest";
+    if s.starts_with("/usr/bin/") || s.starts_with("/usr/local/bin/") {
+        if let Some((deb, rpm)) = package_arch(machine) {
+            if has_dpkg {
+                return InstallMethod::Deb { arch: deb };
+            }
+            if has_rpm && !rpm.is_empty() {
+                return InstallMethod::Rpm { arch: rpm };
+            }
+        }
     }
-    "github.com/hungryZoo/tu/releases/latest"
+    InstallMethod::Unknown
 }
 
-pub fn upgrade_hint() -> &'static str {
+pub fn detect_install_method() -> InstallMethod {
     let exe = env::current_exe().unwrap_or_default();
     let home = dirs::home_dir();
-    upgrade_hint_for(&exe, home.as_deref())
+    let machine = Command::new("uname")
+        .arg("-m")
+        .output()
+        .ok()
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .unwrap_or_default();
+    classify_install(
+        &exe,
+        home.as_deref(),
+        Path::new("/var/lib/dpkg/status").exists(),
+        Path::new("/var/lib/rpm").exists(),
+        &machine,
+    )
+}
+
+impl InstallMethod {
+    /// Short text for the status-row note.
+    pub fn hint(&self) -> String {
+        match self {
+            InstallMethod::Brew => "brew upgrade tu".into(),
+            InstallMethod::Cargo => "cargo install tmux-tu".into(),
+            InstallMethod::Script { .. } => "press u or click to update".into(),
+            InstallMethod::Deb { arch } => format!("sudo dpkg -i tu_{arch}.deb"),
+            InstallMethod::Rpm { arch } => format!("sudo rpm -U tu-{arch}.rpm"),
+            InstallMethod::Unknown => "github.com/hungryZoo/tu/releases/latest".into(),
+        }
+    }
+
+    /// Human label for the Update modal.
+    pub fn describe(&self) -> String {
+        match self {
+            InstallMethod::Brew => "Homebrew".into(),
+            InstallMethod::Cargo => "cargo (crates.io)".into(),
+            InstallMethod::Script { bin_dir } => format!("install.sh → {}", bin_dir.display()),
+            InstallMethod::Deb { .. } => "Debian package (.deb)".into(),
+            InstallMethod::Rpm { .. } => "RPM package".into(),
+            InstallMethod::Unknown => "unknown (manual install)".into(),
+        }
+    }
+
+    /// The shell command that performs the upgrade, run through
+    /// `sh -c` with the terminal attached so sudo can prompt. `None`
+    /// when we can't tell how the binary got there.
+    pub fn upgrade_command(&self) -> Option<String> {
+        Some(match self {
+            InstallMethod::Brew => "brew upgrade tu".into(),
+            InstallMethod::Cargo => "cargo install tmux-tu".into(),
+            InstallMethod::Script { bin_dir } => format!(
+                "curl -fsSL {INSTALL_SH} | sh -s -- --bin-dir '{}'",
+                bin_dir.display().to_string().replace('\'', "'\\''")
+            ),
+            InstallMethod::Deb { arch } => format!(
+                "tmp=$(mktemp -d) && curl -fsSL -o \"$tmp/tu.deb\" {DOWNLOAD}/tu_{arch}.deb \
+&& sudo dpkg -i \"$tmp/tu.deb\"; rc=$?; rm -rf \"$tmp\"; exit $rc"
+            ),
+            InstallMethod::Rpm { arch } => format!("sudo rpm -U {DOWNLOAD}/tu-{arch}.rpm"),
+            InstallMethod::Unknown => return None,
+        })
+    }
+}
+
+pub const INSTALL_SH: &str = "https://raw.githubusercontent.com/hungryZoo/tu/main/install.sh";
+pub const DOWNLOAD: &str = "https://github.com/hungryZoo/tu/releases/latest/download";
+
+pub fn upgrade_hint() -> String {
+    detect_install_method().hint()
+}
+
+/// Everything the Update modal and `--update` need, or `None` when
+/// the cache says we're current (or the check is disabled).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UpdatePlan {
+    pub latest: String,
+    pub method: InstallMethod,
+}
+
+impl UpdatePlan {
+    pub fn notice(&self) -> String {
+        notice_text(&self.latest, &self.method.hint())
+    }
+    pub fn command(&self) -> Option<String> {
+        self.method.upgrade_command()
+    }
+}
+
+pub fn plan() -> Option<UpdatePlan> {
+    if is_disabled() {
+        return None;
+    }
+    let cache = read_cache(&cache_path());
+    let latest = cache.latest?;
+    if !is_newer(&latest, CURRENT_VERSION) {
+        return None;
+    }
+    Some(UpdatePlan {
+        latest,
+        method: detect_install_method(),
+    })
+}
+
+/// Run an upgrade command with the terminal attached. The caller must
+/// have restored the terminal first; the binary on disk changes, so
+/// the caller should exit afterwards rather than keep drawing.
+pub fn run_upgrade(command: &str) -> io::Result<std::process::ExitStatus> {
+    Command::new("sh").arg("-c").arg(command).status()
 }
 
 pub fn notice_text(latest: &str, hint: &str) -> String {
@@ -281,15 +433,7 @@ pub fn notice_text(latest: &str, hint: &str) -> String {
 /// The one-line note for the status row, or `None` when up to date,
 /// disabled, or never checked.
 pub fn notice() -> Option<String> {
-    if is_disabled() {
-        return None;
-    }
-    let cache = read_cache(&cache_path());
-    let latest = cache.latest?;
-    if !is_newer(&latest, CURRENT_VERSION) {
-        return None;
-    }
-    Some(notice_text(&latest, upgrade_hint()))
+    plan().map(|p| p.notice())
 }
 
 #[cfg(test)]
@@ -350,19 +494,83 @@ mod tests {
     }
 
     #[test]
-    fn upgrade_hint_follows_install_location() {
+    fn install_method_follows_binary_location() {
         let home = Path::new("/Users/me");
-        let h = |p: &str| upgrade_hint_for(Path::new(p), Some(home));
-        assert_eq!(h("/opt/homebrew/bin/tu"), "brew upgrade tu");
-        assert_eq!(h("/usr/local/Cellar/tu/1.1.1/bin/tu"), "brew upgrade tu");
-        assert_eq!(h("/home/linuxbrew/.linuxbrew/bin/tu"), "brew upgrade tu");
-        assert_eq!(h("/Users/me/.cargo/bin/tu"), "cargo install tmux-tu");
-        assert_eq!(h("/Users/me/.local/bin/tu"), "re-run install.sh");
-        assert_eq!(h("/usr/bin/tu"), "github.com/hungryZoo/tu/releases/latest");
+        let c = |p: &str, dpkg: bool, rpm: bool| {
+            classify_install(Path::new(p), Some(home), dpkg, rpm, "x86_64")
+        };
+        assert_eq!(c("/opt/homebrew/bin/tu", false, false), InstallMethod::Brew);
         assert_eq!(
-            upgrade_hint_for(Path::new("/weird/tu"), None),
-            "github.com/hungryZoo/tu/releases/latest"
+            c("/usr/local/Cellar/tu/1.1.1/bin/tu", false, false),
+            InstallMethod::Brew
         );
+        assert_eq!(
+            c("/home/linuxbrew/.linuxbrew/bin/tu", true, false),
+            InstallMethod::Brew
+        );
+        assert_eq!(
+            c("/Users/me/.cargo/bin/tu", false, false),
+            InstallMethod::Cargo
+        );
+        assert_eq!(
+            c("/Users/me/.local/bin/tu", false, false),
+            InstallMethod::Script {
+                bin_dir: PathBuf::from("/Users/me/.local/bin")
+            }
+        );
+        assert_eq!(
+            c("/usr/bin/tu", true, false),
+            InstallMethod::Deb { arch: "amd64" }
+        );
+        assert_eq!(
+            c("/usr/bin/tu", false, true),
+            InstallMethod::Rpm { arch: "x86_64" }
+        );
+        assert_eq!(c("/usr/bin/tu", false, false), InstallMethod::Unknown);
+        assert_eq!(
+            classify_install(Path::new("/usr/bin/tu"), Some(home), true, false, "aarch64"),
+            InstallMethod::Deb { arch: "arm64" }
+        );
+        assert_eq!(
+            classify_install(Path::new("/usr/bin/tu"), Some(home), false, true, "armv7l"),
+            InstallMethod::Unknown,
+            "no armhf rpm is published"
+        );
+        assert_eq!(
+            classify_install(Path::new("/weird/tu"), None, true, true, "x86_64"),
+            InstallMethod::Unknown
+        );
+    }
+
+    #[test]
+    fn upgrade_commands_match_method() {
+        assert_eq!(
+            InstallMethod::Brew.upgrade_command().as_deref(),
+            Some("brew upgrade tu")
+        );
+        assert_eq!(
+            InstallMethod::Cargo.upgrade_command().as_deref(),
+            Some("cargo install tmux-tu")
+        );
+        let script = InstallMethod::Script {
+            bin_dir: PathBuf::from("/Users/me/.local/bin"),
+        }
+        .upgrade_command()
+        .unwrap();
+        assert!(script.starts_with("curl -fsSL https://raw.githubusercontent.com/hungryZoo/tu/main/install.sh | sh -s -- --bin-dir '/Users/me/.local/bin'"));
+        let deb = InstallMethod::Deb { arch: "arm64" }
+            .upgrade_command()
+            .unwrap();
+        assert!(deb.contains("/tu_arm64.deb") && deb.contains("sudo dpkg -i"));
+        let rpm = InstallMethod::Rpm { arch: "aarch64" }
+            .upgrade_command()
+            .unwrap();
+        assert_eq!(
+            rpm,
+            "sudo rpm -U https://github.com/hungryZoo/tu/releases/latest/download/tu-aarch64.rpm"
+        );
+        assert_eq!(InstallMethod::Unknown.upgrade_command(), None);
+        assert!(InstallMethod::Unknown.hint().contains("releases/latest"));
     }
 
     #[test]
@@ -370,7 +578,7 @@ mod tests {
         let up = report(
             &CheckOutcome::UpdateAvailable {
                 latest: "1.2.0".into(),
-                hint: "brew upgrade tu",
+                hint: "brew upgrade tu".into(),
             },
             "1.1.2",
         );

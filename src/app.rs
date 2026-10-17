@@ -35,6 +35,8 @@ const POLL_RATE: Duration = Duration::from_millis(100);
 #[derive(Default)]
 pub struct AppOutcome {
     pub post_exit_argv: Option<Vec<String>>,
+    /// An upgrade command to run with the terminal attached, then exit.
+    pub post_exit_command: Option<String>,
 }
 
 pub fn run() -> io::Result<AppOutcome> {
@@ -43,7 +45,8 @@ pub fn run() -> io::Result<AppOutcome> {
 
     let mut state = AppState::new(inside_tmux);
     state.set_sessions(tmux::list_sessions());
-    state.update_notice = update::notice();
+    state.update_plan = update::plan();
+    state.update_notice = state.update_plan.as_ref().map(|p| p.notice());
     update::maybe_spawn_check();
 
     let missing =
@@ -61,6 +64,7 @@ pub fn run() -> io::Result<AppOutcome> {
 
     result.map(|()| AppOutcome {
         post_exit_argv: state.post_exit_argv.take(),
+        post_exit_command: state.post_exit_command.take(),
     })
 }
 
@@ -127,6 +131,7 @@ fn handle_key(state: &mut AppState, key: KeyEvent) {
         Screen::Main => handle_key_main(state, key),
         Screen::ConfirmDelete { name, focus } => handle_key_delete(state, key, name, focus),
         Screen::Rename { original, input } => handle_key_rename(state, key, original, input),
+        Screen::Update { .. } => handle_key_update(state, key),
         Screen::ConfSetup { focus, .. } => handle_key_conf(state, key, focus),
         Screen::RestartNotice { .. } => handle_key_notice(state, key),
     }
@@ -146,6 +151,7 @@ fn handle_key_main(state: &mut AppState, key: KeyEvent) {
         KeyCode::Char('n') => action_new_session(state),
         KeyCode::Char('a') => action_attach_selected(state),
         KeyCode::Char('r') => action_open_rename_modal(state),
+        KeyCode::Char('u') => action_open_update_modal(state),
         KeyCode::Char('d') => action_detach(state),
         // Backspace is the advertised Delete key (it's the key labelled
         // "delete" on Mac keyboards); forward-Delete keeps working too.
@@ -208,6 +214,18 @@ fn handle_key_rename(state: &mut AppState, key: KeyEvent, original: String, mut 
         KeyCode::Char(c) if !ctrl => {
             input.push(c);
             set_rename_input(state, input);
+        }
+        _ => {}
+    }
+}
+
+fn handle_key_update(state: &mut AppState, key: KeyEvent) {
+    let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+    match key.code {
+        KeyCode::Esc | KeyCode::Char('n') | KeyCode::Char('N') => dismiss_modal(state),
+        KeyCode::Char('c') if ctrl => dismiss_modal(state),
+        KeyCode::Enter | KeyCode::Char('y') | KeyCode::Char('Y') | KeyCode::Char('u') => {
+            confirm_update(state)
         }
         _ => {}
     }
@@ -329,6 +347,9 @@ fn trigger_hit(state: &mut AppState, target: HitTarget) {
                 action_attach_selected(state);
             }
         }
+        (Screen::Main, HitTarget::UpdateNotice) => action_open_update_modal(state),
+        (Screen::Update { .. }, HitTarget::ModalPrimary) => dismiss_modal(state),
+        (Screen::Update { .. }, HitTarget::ModalSecondary) => confirm_update(state),
         (Screen::Rename { .. }, HitTarget::ModalPrimary) => dismiss_modal(state),
         (Screen::Rename { original, input }, HitTarget::ModalSecondary) => {
             confirm_rename(state, &original, &input);
@@ -374,6 +395,32 @@ fn button_enabled(state: &AppState, button: ButtonId) -> bool {
         ButtonId::New | ButtonId::Cancel => true,
         ButtonId::Attach | ButtonId::Rename | ButtonId::Delete => state.has_sessions(),
         ButtonId::Detach => state.inside_tmux,
+    }
+}
+
+fn action_open_update_modal(state: &mut AppState) {
+    let Some(plan) = state.update_plan.clone() else {
+        state.set_info(format!("tu {} is up to date.", update::CURRENT_VERSION));
+        return;
+    };
+    state.screen = Screen::Update { plan };
+}
+
+/// Hand the upgrade command to `main`: the TUI must be gone before a
+/// package manager or install.sh gets the terminal.
+fn confirm_update(state: &mut AppState) {
+    let Screen::Update { plan } = &state.screen else {
+        return;
+    };
+    match plan.command() {
+        Some(cmd) => {
+            state.post_exit_command = Some(cmd);
+            state.should_exit = true;
+        }
+        None => {
+            // Nothing we can run: the modal already shows the URL.
+            state.screen = Screen::Main;
+        }
     }
 }
 
@@ -660,6 +707,67 @@ mod tests {
             },
         );
         assert_eq!(s.focus, Focus::Button(ButtonId::Attach));
+    }
+
+    fn brew_plan() -> crate::update::UpdatePlan {
+        crate::update::UpdatePlan {
+            latest: "9.9.9".into(),
+            method: crate::update::InstallMethod::Brew,
+        }
+    }
+
+    #[test]
+    fn u_opens_update_modal_only_when_an_update_exists() {
+        let mut s = make_state(false, &["work"]);
+        handle_key_main(&mut s, key(KeyCode::Char('u')));
+        assert!(matches!(s.screen, Screen::Main));
+        assert!(s.status_message.contains("up to date"));
+        s.update_plan = Some(brew_plan());
+        handle_key_main(&mut s, key(KeyCode::Char('u')));
+        assert!(matches!(s.screen, Screen::Update { .. }));
+    }
+
+    #[test]
+    fn clicking_the_notice_opens_the_update_modal() {
+        let mut s = make_state(false, &["work"]);
+        s.update_plan = Some(brew_plan());
+        trigger_hit(&mut s, HitTarget::UpdateNotice);
+        assert!(matches!(s.screen, Screen::Update { .. }));
+    }
+
+    #[test]
+    fn confirming_update_hands_the_command_to_main_and_exits() {
+        let mut s = make_state(false, &["work"]);
+        s.update_plan = Some(brew_plan());
+        action_open_update_modal(&mut s);
+        handle_key(&mut s, key(KeyCode::Enter));
+        assert!(s.should_exit);
+        assert_eq!(s.post_exit_command.as_deref(), Some("brew upgrade tu"));
+    }
+
+    #[test]
+    fn update_modal_esc_just_closes() {
+        let mut s = make_state(false, &["work"]);
+        s.update_plan = Some(brew_plan());
+        action_open_update_modal(&mut s);
+        handle_key(&mut s, key(KeyCode::Esc));
+        assert!(matches!(s.screen, Screen::Main));
+        assert!(!s.should_exit);
+        assert!(s.post_exit_command.is_none());
+    }
+
+    #[test]
+    fn update_modal_without_a_command_closes_on_confirm() {
+        let mut s = make_state(false, &["work"]);
+        s.update_plan = Some(crate::update::UpdatePlan {
+            latest: "9.9.9".into(),
+            method: crate::update::InstallMethod::Unknown,
+        });
+        action_open_update_modal(&mut s);
+        trigger_hit(&mut s, HitTarget::ModalSecondary);
+        assert!(matches!(s.screen, Screen::Main));
+        assert!(!s.should_exit);
+        assert!(s.post_exit_command.is_none());
     }
 
     #[test]

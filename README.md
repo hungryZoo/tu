@@ -118,12 +118,13 @@ bar.
   the status-bar button, applies them to the running server,
   then asks you to restart `tu` so the new config takes effect
   cleanly.
-- **Quiet update check.** Once a day, in the background, `tu` asks
-  GitHub for the newest release tag and remembers the answer. If it
-  is newer than the running binary, the status row shows one line
-  such as `v1.2.0 available · brew upgrade tu`, with the upgrade
-  command picked from where the binary is installed. No modal, no
-  prompt, no waiting at launch. `TU_NO_UPDATE_CHECK=1` turns it off.
+- **Quiet update check, one-key update.** Once a day, in the
+  background, `tu` asks GitHub for the newest release tag. If it is
+  newer than the running binary, the status row shows one line such
+  as `v1.2.0 available · brew upgrade tu`. Press **u** or click it and
+  `tu` upgrades itself with the method it was installed by (Homebrew,
+  cargo, install.sh, `.deb`, `.rpm`), then exits. Nothing waits at
+  launch; `TU_NO_UPDATE_CHECK=1` turns it off.
 - **Catppuccin Mocha** theme with proper focus, hover, press and
   disabled states across every widget.
 
@@ -356,6 +357,7 @@ keystroke can't nuke anything.
 | **Enter** / **a**           | attach / switch to the selected session  |
 | **n**                       | new session                              |
 | **r**                       | rename selected session                  |
+| **u**                       | update `tu` (when the status row says a newer release exists) |
 | **d**                       | detach current client (inside tmux only) |
 | **Backspace** / **Delete**  | delete selected session (with confirm)   |
 | **Tab** / **Shift+Tab**, ← / → | move focus between buttons            |
@@ -453,6 +455,7 @@ bind-key -n F12 display-popup -E -B -w 100% -h 100% "tu"
 | `TU_NO_POPUP=1`   | same as `--no-popup`                                    |
 | `TU_NO_UPDATE_CHECK=1` | never check GitHub for a newer release, never show the note |
 | `--check-update`  | check GitHub right now, print the result, exit (0 up to date, 10 update available, 11 unreachable) |
+| `--update`        | check now and, if newer, upgrade in place with the detected install method (0 done or up to date, 1 upgrade failed, 11 unreachable) |
 | `--version`       | print the version and exit                              |
 | `--help`          | list every flag                                         |
 
@@ -469,8 +472,26 @@ and the newest tag it saw. On launch:
    waits for it; a result shows up on the *next* launch.
 3. If the stored tag is newer than the running binary, the status
    row shows `vX.Y.Z available · <how to upgrade>`. The hint is
-   `brew upgrade tu`, `cargo install tmux-tu`, `re-run install.sh`
-   or the releases URL, chosen from the binary's path.
+   `brew upgrade tu`, `cargo install tmux-tu`, `press u or click to
+   update` (install.sh), the `.deb` / `.rpm` command, or the releases
+   URL, chosen from the binary's path.
+4. Press **u** or click the note to open the **Update** modal. It
+   names the install method it detected and the exact command it
+   will run. **Enter** closes `tu`, runs that command with the
+   terminal attached (so `sudo` can ask for a password), and exits;
+   the next `tu` is the new version. **Esc** keeps the note for later.
+
+| Install method | Detected by | Command run |
+| --- | --- | --- |
+| Homebrew | path contains `/Cellar/`, `/homebrew/`, `/linuxbrew/` | `brew upgrade tu` |
+| cargo | `~/.cargo/bin/tu` | `cargo install tmux-tu` |
+| install.sh / tarball | any other path under `$HOME` | `curl … install.sh \| sh -s -- --bin-dir <that dir>` |
+| `.deb` | `/usr/bin/tu` with a dpkg database | download `tu_<arch>.deb`, `sudo dpkg -i` |
+| `.rpm` | `/usr/bin/tu` with an rpm database | `sudo rpm -U …/tu-<arch>.rpm` |
+| unknown | anything else | nothing; the modal shows the releases URL |
+
+`tu --update` does the same from the command line: checks now, and
+if a newer release exists runs the matching command.
 
 Failures (offline, no `curl`, rate limits) are silent and retried a
 day later. `tu --check-update` runs the same check immediately,

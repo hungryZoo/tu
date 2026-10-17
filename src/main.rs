@@ -40,6 +40,14 @@ struct Cli {
     /// the cache the TUI's status-row note reads from.
     #[arg(long)]
     check_update: bool,
+
+    /// Check for a newer release and, if there is one, upgrade in place
+    /// using the method this binary was installed with (Homebrew, cargo,
+    /// install.sh, .deb or .rpm). Exit code 0 when done or already up to
+    /// date, 11 when GitHub could not be reached, 1 when the upgrade
+    /// command failed.
+    #[arg(long)]
+    update: bool,
 }
 
 fn env_no_popup() -> bool {
@@ -50,6 +58,27 @@ fn env_no_popup() -> bool {
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
+
+    if cli.update {
+        let outcome = update::check_now();
+        println!("{}", update::report(&outcome, update::CURRENT_VERSION));
+        return match outcome {
+            update::CheckOutcome::UpdateAvailable { .. } => {
+                let method = update::detect_install_method();
+                match method.upgrade_command() {
+                    Some(cmd) => run_upgrade_and_report(&cmd),
+                    None => {
+                        eprintln!(
+                            "tu: can't tell how this binary was installed; update it by hand."
+                        );
+                        ExitCode::from(1)
+                    }
+                }
+            }
+            update::CheckOutcome::UpToDate { .. } => ExitCode::SUCCESS,
+            update::CheckOutcome::Unreachable => ExitCode::from(11),
+        };
+    }
 
     if cli.check_update {
         let outcome = update::check_now();
@@ -90,6 +119,10 @@ fn main() -> ExitCode {
         }
     };
 
+    if let Some(cmd) = outcome.post_exit_command {
+        return run_upgrade_and_report(&cmd);
+    }
+
     let Some(argv) = outcome.post_exit_argv else {
         return ExitCode::SUCCESS;
     };
@@ -101,4 +134,24 @@ fn main() -> ExitCode {
     let err = Command::new(&argv[0]).args(&argv[1..]).exec();
     eprintln!("tu: failed to launch `{}`: {err}", argv.join(" "));
     ExitCode::from(1)
+}
+
+/// Run the upgrade with the terminal attached (sudo may prompt) and
+/// say how it went. The binary on disk is replaced, so we exit.
+fn run_upgrade_and_report(cmd: &str) -> ExitCode {
+    println!("tu: running: {cmd}");
+    match update::run_upgrade(cmd) {
+        Ok(status) if status.success() => {
+            println!("tu: updated. Start `tu` again to use the new version.");
+            ExitCode::SUCCESS
+        }
+        Ok(status) => {
+            eprintln!("tu: upgrade command exited with {status}");
+            ExitCode::from(1)
+        }
+        Err(e) => {
+            eprintln!("tu: could not run the upgrade command: {e}");
+            ExitCode::from(1)
+        }
+    }
 }
