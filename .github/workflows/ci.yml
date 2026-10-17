@@ -1,0 +1,71 @@
+name: ci
+
+# Runs on every push and pull request so release-breaking changes are
+# caught before they reach `main`: formatting, clippy, tests, and a
+# real packaging pass (native target only) through the same scripts
+# the release workflow uses.
+on:
+  push:
+    branches: ["**"]
+    tags-ignore: ["**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: fmt
+        run: cargo fmt --all -- --check
+      - name: clippy
+        run: cargo clippy --all-targets -- -D warnings
+      - name: test
+        run: cargo test
+
+  package:
+    # The step that broke v1.1.2 the first time: make sure the binary
+    # lands where the scripts expect it and that .deb/.rpm still build.
+    runs-on: ubuntu-latest
+    needs: check
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-gnu
+      - uses: Swatinem/rust-cache@v2
+      - name: Install cargo-deb, cargo-generate-rpm
+        run: |
+          set -euo pipefail
+          curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash
+          cargo binstall -y --locked cargo-deb cargo-generate-rpm \
+            || cargo install --locked cargo-deb cargo-generate-rpm
+      - name: Build (native)
+        run: cargo build --release --target x86_64-unknown-linux-gnu
+      - name: Package (native target only)
+        run: bash scripts/package-all.sh
+      - name: Assert expected asset names
+        run: |
+          set -euo pipefail
+          source scripts/meta.sh
+          for f in \
+            "dist/$BIN-$VERSION-x86_64-unknown-linux-gnu.tar.gz" \
+            "dist/${BIN}_${VERSION}_amd64.deb" \
+            "dist/${BIN}_amd64.deb" \
+            "dist/$BIN-$VERSION-1.x86_64.rpm" \
+            "dist/$BIN-x86_64.rpm" \
+            dist/SHA256SUMS dist/install.sh; do
+            [[ -f "$f" ]] || { echo "missing $f"; ls -la dist; exit 1; }
+          done
+          "./target/x86_64-unknown-linux-gnu/release/$BIN" --version | grep -F "$BIN $VERSION"
+          echo "ok: $(ls dist | wc -l) assets"

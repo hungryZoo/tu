@@ -17,11 +17,15 @@ name = "tu"
 path = "src/main.rs"
 
 # --------------------------------------------------------------------
-# Distro packaging metadata.
+# Naming, in one place:
+#   crate   = tmux-tu   (crates.io identifier; plain `tu` was taken — this is
+#                        the ONLY place the long name is used)
+#   binary  = tu        ([[bin]] above; what users type)
+#   package = tu        (.deb / .rpm below; also the release asset prefix)
+# scripts/meta.sh reads these; nothing else hard-codes a name.
 #
-# Both blocks share the same shape: name the package `tu` (the crate on
-# crates.io is `tmux-tu`, the binary is `tu`), depend on `tmux` so the package manager
-# pulls it for you, and ship the binary + license + README under
+# Both blocks share the same shape: depend on `tmux` so the package
+# manager pulls it for you, and ship the binary + license + README under
 # the usual /usr paths.
 # --------------------------------------------------------------------
 

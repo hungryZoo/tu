@@ -1,8 +1,9 @@
 name: release
 
 # Builds every supported target with cargo-zigbuild on one Ubuntu
-# runner, packages tarballs / .deb / .rpm, publishes a GitHub release,
-# and publishes a GitHub release.
+# runner, packages tarballs / .deb / .rpm, and publishes a GitHub
+# release. Nothing is tagged until the build and packaging have
+# succeeded, so a failed run leaves no half-finished tag behind.
 #
 # Homebrew tap + crates.io are updated afterwards from a developer
 # machine with `scripts/post-release.sh` (uses the local `gh` login and
@@ -10,9 +11,10 @@ name: release
 #
 # Two ways in:
 #   * push a tag `vX.Y.Z`                     -> releases that tag
-#   * Actions > release > Run workflow        -> creates tag vX.Y.Z on the
-#     chosen ref (X.Y.Z read from Cargo.toml) if it doesn't exist, then
-#     releases it
+#   * Actions > release > Run workflow        -> builds the chosen ref
+#     (X.Y.Z read from Cargo.toml), then creates tag vX.Y.Z on it if the
+#     tag doesn't exist yet. A tag that already has a published release
+#     is released as-is (that commit is checked out first).
 on:
   push:
     tags: ["v*"]
@@ -33,52 +35,38 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Resolve version
+      - name: Resolve version and ref
         id: ver
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          cargo_version="$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)"
+          source scripts/meta.sh
+          TAG="v$VERSION"
           if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
             tag_version="${GITHUB_REF#refs/tags/v}"
-            if [[ "$tag_version" != "$cargo_version" ]]; then
-              echo "tag v$tag_version does not match Cargo.toml version $cargo_version" >&2
+            if [[ "$tag_version" != "$VERSION" ]]; then
+              echo "tag v$tag_version does not match Cargo.toml version $VERSION" >&2
               exit 1
             fi
-          fi
-          echo "version=$cargo_version" >> "$GITHUB_OUTPUT"
-          echo "tag=v$cargo_version" >> "$GITHUB_OUTPUT"
-
-      - name: Create tag (workflow_dispatch only)
-        if: github.event_name == 'workflow_dispatch'
-        env:
-          TAG: ${{ steps.ver.outputs.tag }}
-          VERSION: ${{ steps.ver.outputs.version }}
-        run: |
-          set -euo pipefail
-          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            mode=tag
+          elif git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1 \
+               && gh release view "$TAG" >/dev/null 2>&1; then
+            # Manual re-run of an already-published version: rebuild
+            # exactly what was released, not whatever main is now.
             git fetch origin "refs/tags/$TAG:refs/tags/$TAG"
-            tagged="$(git rev-parse "$TAG^{commit}")"
-            head="$(git rev-parse HEAD)"
-            if [[ "$tagged" == "$head" ]]; then
-              echo "$TAG already points at HEAD"
-            elif gh release view "$TAG" >/dev/null 2>&1; then
-              echo "$TAG has a published release; releasing that commit"
-              git checkout -q "$TAG"
-            else
-              # A tag with no release is a failed earlier attempt. Move it
-              # to HEAD so the fix in this run is what gets released.
-              echo "$TAG exists without a release; moving it from $tagged to $head"
-              git config user.name "github-actions[bot]"
-              git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-              git tag -f -a "$TAG" -m "tu $VERSION"
-              git push --force origin "refs/tags/$TAG"
-            fi
+            git checkout -q "$TAG"
+            source scripts/meta.sh
+            echo "$TAG already has a release; rebuilding its commit"
+            mode=republish
           else
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git tag -a "$TAG" -m "tu $VERSION"
-            git push origin "refs/tags/$TAG"
+            mode=new
           fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "bin=$BIN" >> "$GITHUB_OUTPUT"
+          echo "mode=$mode" >> "$GITHUB_OUTPUT"
+          echo "mode=$mode version=$VERSION bin=$BIN"
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -103,6 +91,9 @@ jobs:
             || cargo install --locked cargo-deb cargo-generate-rpm
 
       - name: Build all targets
+        env:
+          BIN: ${{ steps.ver.outputs.bin }}
+          VERSION: ${{ steps.ver.outputs.version }}
         run: |
           set -euo pipefail
           for t in \
@@ -116,12 +107,34 @@ jobs:
             x86_64-apple-darwin; do
             echo "::group::$t"
             cargo zigbuild --release --target "$t"
+            test -f "target/$t/release/$BIN" || { echo "no target/$t/release/$BIN"; ls "target/$t/release"; exit 1; }
             echo "::endgroup::"
           done
-          ./target/x86_64-unknown-linux-gnu/release/tu --version
+          "./target/x86_64-unknown-linux-gnu/release/$BIN" --version | grep -F "$BIN $VERSION"
 
       - name: Package
         run: bash scripts/package-all.sh
+
+      # Everything above succeeded: only now touch refs.
+      - name: Create tag (manual run of a new version)
+        if: steps.ver.outputs.mode == 'new'
+        env:
+          TAG: ${{ steps.ver.outputs.tag }}
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            # Exists but has no release: a failed earlier attempt. Point
+            # it at the commit we just built and verified.
+            echo "$TAG exists without a release; moving it to $(git rev-parse --short HEAD)"
+            git tag -f -a "$TAG" -m "tu $VERSION"
+            git push --force origin "refs/tags/$TAG"
+          else
+            git tag -a "$TAG" -m "tu $VERSION"
+            git push origin "refs/tags/$TAG"
+          fi
 
       - name: Publish release
         env:
