@@ -1,6 +1,6 @@
 [package]
 name = "tmux-tu"
-version = "1.1.1"
+version = "1.1.2"
 edition = "2021"
 authors = ["hungryZoo <heonzoo.lee@gmail.com>"]
 description = "tu — a tiny tmux session menu. List, create, attach, detach, delete."

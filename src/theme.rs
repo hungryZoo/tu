@@ -257,6 +257,13 @@ pub fn status_info_style() -> Style {
         .add_modifier(Modifier::ITALIC)
 }
 
+pub fn status_update_style() -> Style {
+    Style::default()
+        .fg(palette::PEACH)
+        .bg(palette::BASE)
+        .add_modifier(Modifier::BOLD)
+}
+
 pub fn status_error_style() -> Style {
     Style::default()
         .fg(palette::RED)

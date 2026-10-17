@@ -9,7 +9,8 @@ use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use ratatui::Frame;
 
 use crate::state::{
-    AppState, ButtonId, ConfFocus, DeleteFocus, Focus, HitTarget, Screen, StatusKind, BUTTON_ORDER,
+    initial_status, AppState, ButtonId, ConfFocus, DeleteFocus, Focus, HitTarget, Screen,
+    StatusKind, BUTTON_ORDER,
 };
 use crate::theme::{self, palette, ButtonVisual};
 
@@ -343,8 +344,30 @@ fn render_status(f: &mut Frame, area: Rect, state: &AppState) {
         StatusKind::Info => theme::status_info_style(),
         StatusKind::Error => theme::status_error_style(),
     };
+    let notice = state.update_notice.as_deref();
+    let msg_w = state.status_message.chars().count() as u16;
+    let note_w = notice.map(|n| n.chars().count() as u16).unwrap_or(0);
+    let fits_beside = note_w > 0 && msg_w + 2 + note_w <= area.width;
+    let is_idle = matches!(state.status_kind, StatusKind::Info)
+        && state.status_message == initial_status(state.inside_tmux);
+
+    // The update note never hides an error or an action result. It
+    // sits right-aligned next to the message when there's room, and
+    // otherwise takes the row only while the message is the idle hint.
+    if let Some(n) = notice.filter(|_| !fits_beside && is_idle) {
+        let p = Paragraph::new(n.to_string()).style(theme::status_update_style());
+        f.render_widget(p, area);
+        return;
+    }
     let p = Paragraph::new(state.status_message.clone()).style(style);
     f.render_widget(p, area);
+    if let Some(n) =
+        notice.filter(|_| fits_beside && !matches!(state.status_kind, StatusKind::Error))
+    {
+        let rect = Rect::new(area.x + area.width - note_w, area.y, note_w, area.height);
+        let p = Paragraph::new(n.to_string()).style(theme::status_update_style());
+        f.render_widget(p, rect);
+    }
 }
 
 // ---------------------------------------------------------- modals

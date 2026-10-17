@@ -162,6 +162,9 @@ pub struct AppState {
 
     pub status_message: String,
     pub status_kind: StatusKind,
+    /// "vX.Y.Z available · how to upgrade", shown right-aligned on the
+    /// status row. Filled from the update-check cache at startup.
+    pub update_notice: Option<String>,
 
     pub should_exit: bool,
     pub post_exit_argv: Option<Vec<String>>,
