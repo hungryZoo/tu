@@ -159,7 +159,7 @@ Useful knobs:
 
 | Variable / flag        | Effect                                        |
 | ---------------------- | --------------------------------------------- |
-| `TU_VERSION=1.1.3`     | pin a release instead of *latest*             |
+| `TU_VERSION=1.1.4`     | pin a release instead of *latest*             |
 | `TU_BIN_DIR=/usr/local/bin` | install somewhere other than `~/.local/bin` |
 | `sh -s -- --help`      | list every option                             |
 
@@ -623,17 +623,13 @@ with `cargo-zigbuild` (macOS included), packages tarballs +
 The tag is created only after the build and packaging succeed, so a
 failed run never leaves a tag without a release.
 
-Homebrew and crates.io are updated afterwards from a developer
-machine, using the local `gh` login and `cargo login` rather than
-repository secrets:
-
-```bash
-scripts/post-release.sh        # version read from Cargo.toml
-```
-
-It rewrites `Formula/tu.rb` in
+The same run then rewrites `Formula/tu.rb` in
 [hungryZoo/homebrew-tap](https://github.com/hungryZoo/homebrew-tap)
-to the new checksums, pushes it, and runs `cargo publish`.
+to the new checksums and pushes it (repository secret
+`HOMEBREW_TAP_TOKEN`), and publishes the crate with `cargo publish`
+(secret `CARGO_REGISTRY_TOKEN`). Either step is skipped with a
+warning if its secret is missing; `scripts/post-release.sh` does
+both by hand from a machine with `gh` and `cargo login`.
 
 To cut a release:
 
