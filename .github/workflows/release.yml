@@ -56,9 +56,23 @@ jobs:
         run: |
           set -euo pipefail
           if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
-            echo "$TAG already exists on origin; releasing that commit"
             git fetch origin "refs/tags/$TAG:refs/tags/$TAG"
-            git checkout -q "$TAG"
+            tagged="$(git rev-parse "$TAG^{commit}")"
+            head="$(git rev-parse HEAD)"
+            if [[ "$tagged" == "$head" ]]; then
+              echo "$TAG already points at HEAD"
+            elif gh release view "$TAG" >/dev/null 2>&1; then
+              echo "$TAG has a published release; releasing that commit"
+              git checkout -q "$TAG"
+            else
+              # A tag with no release is a failed earlier attempt. Move it
+              # to HEAD so the fix in this run is what gets released.
+              echo "$TAG exists without a release; moving it from $tagged to $head"
+              git config user.name "github-actions[bot]"
+              git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+              git tag -f -a "$TAG" -m "tu $VERSION"
+              git push --force origin "refs/tags/$TAG"
+            fi
           else
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"

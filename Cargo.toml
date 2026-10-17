@@ -13,7 +13,7 @@ readme = "README.md"
 exclude = ["assets/*", "scripts/*", ".github/*", "install.sh"]
 
 [[bin]]
-name = "tmux-tu"
+name = "tu"
 path = "src/main.rs"
 
 # --------------------------------------------------------------------
@@ -26,7 +26,7 @@ path = "src/main.rs"
 # --------------------------------------------------------------------
 
 [package.metadata.deb]
-name = "tmux-tu"
+name = "tu"
 maintainer = "hungryZoo <heonzoo.lee@gmail.com>"
 copyright = "2026, hungryZoo <heonzoo.lee@gmail.com>"
 license-file = ["LICENSE", "0"]
@@ -48,7 +48,7 @@ assets = [
 ]
 
 [package.metadata.generate-rpm]
-name = "tmux-tu"
+name = "tu"
 summary = "A tiny TUI menu on top of tmux"
 license = "MIT"
 url = "https://github.com/hungryZoo/tu"
