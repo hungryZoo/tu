@@ -433,6 +433,7 @@ bind-key -n F12 display-popup -E -B -w 100% -h 100% "tu"
 | `--no-popup`      | inside tmux, draw inline in the pane instead of a popup |
 | `TU_NO_POPUP=1`   | same as `--no-popup`                                    |
 | `TU_NO_UPDATE_CHECK=1` | never check GitHub for a newer release, never show the note |
+| `--check-update`  | check GitHub right now, print the result, exit (0 up to date, 10 update available, 11 unreachable) |
 | `--version`       | print the version and exit                              |
 | `--help`          | list every flag                                         |
 
@@ -453,7 +454,10 @@ and the newest tag it saw. On launch:
    or the releases URL, chosen from the binary's path.
 
 Failures (offline, no `curl`, rate limits) are silent and retried a
-day later. The note never covers an error message or an action
+day later. `tu --check-update` runs the same check immediately,
+prints the verdict and the upgrade hint, refreshes the cache, and
+exits with 0 (up to date), 10 (update available) or 11 (unreachable),
+so it also works from scripts. The note never covers an error message or an action
 result; on narrow terminals it replaces the idle hint instead.
 
 <p align="right"><a href="#table-of-contents">↑ back to top</a></p>

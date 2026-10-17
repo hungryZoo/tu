@@ -19,7 +19,7 @@ use std::process::{Command, ExitCode};
 
 use clap::Parser;
 
-use tmux_tu::{app, tmux};
+use tmux_tu::{app, tmux, update};
 
 #[derive(Parser)]
 #[command(
@@ -33,6 +33,13 @@ struct Cli {
     /// Setting TU_NO_POPUP=1 has the same effect.
     #[arg(long)]
     no_popup: bool,
+
+    /// Ask GitHub for the newest release right now, print the result,
+    /// and exit. Exit code 0 when up to date, 10 when an update is
+    /// available, 11 when GitHub could not be reached. Also refreshes
+    /// the cache the TUI's status-row note reads from.
+    #[arg(long)]
+    check_update: bool,
 }
 
 fn env_no_popup() -> bool {
@@ -43,6 +50,16 @@ fn env_no_popup() -> bool {
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
+
+    if cli.check_update {
+        let outcome = update::check_now();
+        println!("{}", update::report(&outcome, update::CURRENT_VERSION));
+        return match outcome {
+            update::CheckOutcome::UpToDate { .. } => ExitCode::SUCCESS,
+            update::CheckOutcome::UpdateAvailable { .. } => ExitCode::from(10),
+            update::CheckOutcome::Unreachable => ExitCode::from(11),
+        };
+    }
 
     if !tmux::is_tmux_installed() {
         eprintln!(

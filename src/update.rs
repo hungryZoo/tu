@@ -167,6 +167,59 @@ pub fn version_from_release_url(url: &str) -> Option<String> {
     parse_semver(v).map(|_| v.to_string())
 }
 
+/// Outcome of a synchronous check, for `tu --check-update`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CheckOutcome {
+    /// Newest release is newer than this binary.
+    UpdateAvailable { latest: String, hint: &'static str },
+    /// This binary is the newest release (or newer than any release).
+    UpToDate { latest: String },
+    /// Could not reach GitHub, or `curl` is missing.
+    Unreachable,
+}
+
+/// Check right now, ignoring the 24 h interval, and refresh the cache
+/// with the answer. Used by `tu --check-update`; the TUI never calls
+/// this because it blocks for up to the curl timeout.
+pub fn check_now() -> CheckOutcome {
+    let path = cache_path();
+    let mut cache = read_cache(&path);
+    cache.checked_at = now_secs();
+    match fetch_latest() {
+        Some(latest) => {
+            cache.latest = Some(latest.clone());
+            let _ = write_cache(&path, &cache);
+            if is_newer(&latest, CURRENT_VERSION) {
+                CheckOutcome::UpdateAvailable {
+                    latest,
+                    hint: upgrade_hint(),
+                }
+            } else {
+                CheckOutcome::UpToDate { latest }
+            }
+        }
+        None => {
+            let _ = write_cache(&path, &cache);
+            CheckOutcome::Unreachable
+        }
+    }
+}
+
+/// Human-readable report for `tu --check-update`.
+pub fn report(outcome: &CheckOutcome, current: &str) -> String {
+    match outcome {
+        CheckOutcome::UpdateAvailable { latest, hint } => {
+            format!("tu {current} → {latest} available\nupgrade: {hint}\nrelease: {LATEST_URL}")
+        }
+        CheckOutcome::UpToDate { latest } => {
+            format!("tu {current} is up to date (latest release: {latest})")
+        }
+        CheckOutcome::Unreachable => {
+            format!("tu {current}: could not reach {LATEST_URL} (offline, or curl missing)")
+        }
+    }
+}
+
 /// Kick off a background check if the cache is older than a day.
 /// Returns immediately. Safe to call on every launch.
 pub fn maybe_spawn_check() {
@@ -310,6 +363,28 @@ mod tests {
             upgrade_hint_for(Path::new("/weird/tu"), None),
             "github.com/hungryZoo/tu/releases/latest"
         );
+    }
+
+    #[test]
+    fn report_covers_every_outcome() {
+        let up = report(
+            &CheckOutcome::UpdateAvailable {
+                latest: "1.2.0".into(),
+                hint: "brew upgrade tu",
+            },
+            "1.1.2",
+        );
+        assert!(up.contains("1.1.2 → 1.2.0"));
+        assert!(up.contains("brew upgrade tu"));
+        assert!(up.contains(LATEST_URL));
+        let same = report(
+            &CheckOutcome::UpToDate {
+                latest: "1.1.2".into(),
+            },
+            "1.1.2",
+        );
+        assert!(same.contains("up to date"));
+        assert!(report(&CheckOutcome::Unreachable, "1.1.2").contains("could not reach"));
     }
 
     #[test]
