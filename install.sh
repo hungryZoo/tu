@@ -4,7 +4,7 @@
 #   curl -fsSL https://raw.githubusercontent.com/hungryZoo/tu/main/install.sh | sh
 #
 # Environment:
-#   TU_VERSION=1.1.2     pin a release (default: latest on GitHub)
+#   TU_VERSION=1.1.3     pin a release (default: latest on GitHub)
 #   TU_INSTALL_DIR=...   install directory (default: ~/.local/bin)
 set -eu
 
