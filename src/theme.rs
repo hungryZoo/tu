@@ -240,15 +240,10 @@ pub fn list_empty_style() -> Style {
 
 // ----------------------------------------------------- hint + status
 
-pub fn hint_text_style() -> Style {
-    Style::default().fg(palette::OVERLAY2).bg(palette::BASE)
-}
-
-pub fn hint_key_style() -> Style {
-    Style::default()
-        .fg(palette::YELLOW)
-        .bg(palette::BASE)
-        .add_modifier(Modifier::BOLD)
+/// The shortcut key inside a button label: the hint-bar yellow, bold,
+/// on the button's own fill so it reads as part of the label.
+pub fn button_key_style(label: Style) -> Style {
+    label.fg(palette::YELLOW).add_modifier(Modifier::BOLD)
 }
 
 pub fn status_info_style() -> Style {

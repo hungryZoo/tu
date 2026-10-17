@@ -40,7 +40,6 @@ pub fn render(f: &mut Frame, state: &mut AppState) {
             Constraint::Min(4),    // session list
             Constraint::Length(1), // spacer
             Constraint::Length(3), // buttons
-            Constraint::Length(1), // hint
             Constraint::Length(1), // status
         ])
         .split(body);
@@ -48,8 +47,7 @@ pub fn render(f: &mut Frame, state: &mut AppState) {
     render_section_label(f, chunks[0]);
     render_session_list(f, chunks[1], state);
     render_buttons(f, chunks[3], state);
-    render_hint(f, chunks[4]);
-    render_status(f, chunks[5], state);
+    render_status(f, chunks[4], state);
 
     // Snapshot modal data before passing `&mut state` to render
     // helpers — keeps the borrow checker happy.
@@ -216,35 +214,13 @@ fn render_session_list(f: &mut Frame, area: Rect, state: &mut AppState) {
 
 // --------------------------------------------------------- buttons
 
-/// Pick full or short labels so the whole row fits `width`.
-fn button_labels(width: u16) -> (Vec<&'static str>, u16) {
-    let spacer: u16 = 1;
-    let fits = |labels: &[&str]| {
-        labels
-            .iter()
-            .map(|l| l.chars().count() as u16 + 4)
-            .sum::<u16>()
-            + spacer * (labels.len() as u16 - 1)
-            <= width
-    };
-    let full: Vec<&str> = BUTTON_ORDER.iter().map(|b| b.label()).collect();
-    if fits(&full) {
-        return (full, spacer);
-    }
-    (
-        BUTTON_ORDER.iter().map(|b| b.short_label()).collect(),
-        spacer,
-    )
-}
-
 fn render_buttons(f: &mut Frame, area: Rect, state: &mut AppState) {
-    // Six labelled buttons need 91 cells; an 80-column pane has 76, so
-    // the row drops the "(key)" hints when it must. The hint bar below
-    // still lists every key.
-    let (labels, spacer) = button_labels(area.width);
-    let widths: Vec<u16> = labels
+    // Six buttons, 71 cells with one column between them: fits the 76
+    // usable cells of an 80-column pane.
+    let spacer: u16 = 1;
+    let widths: Vec<u16> = BUTTON_ORDER
         .iter()
-        .map(|l| (l.chars().count() as u16) + 4)
+        .map(|b| (b.label().chars().count() as u16) + 4)
         .collect();
 
     let total: u16 = widths.iter().sum::<u16>() + spacer * (BUTTON_ORDER.len() as u16 - 1);
@@ -264,14 +240,14 @@ fn render_buttons(f: &mut Frame, area: Rect, state: &mut AppState) {
         let rect = Rect::new(x, area.y, w, area.height);
         state.geom.buttons[i] = Some(rect);
         let visual = button_visual(state, *button);
-        render_styled_button(
-            f,
-            rect,
-            labels[i],
-            button.accent(),
-            visual,
-            ButtonContext::Main,
-        );
+        let style = theme::button_style(button.accent(), visual);
+        let (before, key, after) = button.label_parts();
+        let line = Line::from(vec![
+            Span::styled(before, style.label),
+            Span::styled(key, theme::button_key_style(style.label)),
+            Span::styled(after, style.label),
+        ]);
+        render_button_frame(f, rect, line, &style);
         x += widths[i] + spacer;
     }
 }
@@ -300,26 +276,20 @@ fn button_enabled(state: &AppState, button: ButtonId) -> bool {
     }
 }
 
-#[derive(Clone, Copy)]
-enum ButtonContext {
-    /// Sits on the Base-coloured window background.
-    Main,
-    /// Sits on the Crust-coloured modal background.
-    Modal,
-}
-
-fn render_styled_button(
+/// Modal button: plain centred label on the Crust modal background.
+fn render_modal_button(
     f: &mut Frame,
     area: Rect,
     label: &str,
     accent: Color,
     visual: ButtonVisual,
-    context: ButtonContext,
 ) {
-    let style = match context {
-        ButtonContext::Main => theme::button_style(accent, visual),
-        ButtonContext::Modal => theme::modal_button_style(accent, visual),
-    };
+    let style = theme::modal_button_style(accent, visual);
+    render_button_frame(f, area, Line::from(label), &style);
+}
+
+/// Bordered button with a pre-styled label line centred inside.
+fn render_button_frame(f: &mut Frame, area: Rect, label: Line, style: &theme::ButtonStyle) {
     let block = Block::new()
         .borders(Borders::ALL)
         .border_style(style.border)
@@ -333,43 +303,7 @@ fn render_styled_button(
     f.render_widget(para, inner);
 }
 
-// ---------------------------------------------------- hint + status
-
-fn render_hint(f: &mut Frame, area: Rect) {
-    let separator = || Span::styled("  ·  ", theme::hint_text_style());
-    let key = |s: &'static str| Span::styled(s, theme::hint_key_style());
-    let word = |s: &'static str| Span::styled(s, theme::hint_text_style());
-    let line = Line::from(vec![
-        key("n"),
-        word(" New"),
-        separator(),
-        key("a"),
-        word(" Attach"),
-        separator(),
-        key("r"),
-        word(" Rename"),
-        separator(),
-        key("d"),
-        word(" Detach"),
-        separator(),
-        key("Esc"),
-        word(" Cancel"),
-        separator(),
-        key("Bksp"),
-        word(" Delete"),
-        separator(),
-        key("↑↓"),
-        word(" Nav"),
-        separator(),
-        key("Tab"),
-        word(" Focus"),
-        separator(),
-        key("Enter"),
-        word(" Attach"),
-    ]);
-    let p = Paragraph::new(line).style(theme::hint_text_style());
-    f.render_widget(p, area);
-}
+// ---------------------------------------------------- status
 
 fn render_status(f: &mut Frame, area: Rect, state: &AppState) {
     let style = match state.status_kind {
@@ -576,14 +510,7 @@ fn render_restart_notice(f: &mut Frame, area: Rect, state: &mut AppState, messag
     state.geom.modal_secondary = None;
 
     let visual = modal_button_visual(state, HitTarget::ModalPrimary, true);
-    render_styled_button(
-        f,
-        btn_rect,
-        label,
-        palette::GREEN,
-        visual,
-        ButtonContext::Modal,
-    );
+    render_modal_button(f, btn_rect, label, palette::GREEN, visual);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -641,21 +568,19 @@ fn render_modal(
     let primary_visual = modal_button_visual(state, HitTarget::ModalPrimary, primary_focused);
     let secondary_visual = modal_button_visual(state, HitTarget::ModalSecondary, secondary_focused);
 
-    render_styled_button(
+    render_modal_button(
         f,
         primary_rect,
         primary_btn.0,
         primary_btn.1,
         primary_visual,
-        ButtonContext::Modal,
     );
-    render_styled_button(
+    render_modal_button(
         f,
         secondary_rect,
         secondary_btn.0,
         secondary_btn.1,
         secondary_visual,
-        ButtonContext::Modal,
     );
 }
 

@@ -46,28 +46,25 @@ impl ButtonId {
         BUTTON_ORDER.iter().position(|&b| b == self).unwrap()
     }
 
-    pub fn label(self) -> &'static str {
+    /// Button text split as (before, key, after). `key` is drawn in
+    /// the hint colour. For letter shortcuts it is the word's own
+    /// initial, so it costs no width; Esc and Backspace are appended
+    /// as a short token. Six buttons fit in 71 cells this way.
+    pub fn label_parts(self) -> (&'static str, &'static str, &'static str) {
         match self {
-            ButtonId::New => "New (n)",
-            ButtonId::Attach => "Attach (a)",
-            ButtonId::Rename => "Rename (r)",
-            ButtonId::Detach => "Detach (d)",
-            ButtonId::Cancel => "Cancel (Esc)",
-            ButtonId::Delete => "Delete (Bksp)",
+            ButtonId::New => ("", "N", "ew"),
+            ButtonId::Attach => ("", "A", "ttach"),
+            ButtonId::Rename => ("", "R", "ename"),
+            ButtonId::Detach => ("", "D", "etach"),
+            ButtonId::Cancel => ("Cancel ", "Esc", ""),
+            ButtonId::Delete => ("Delete ", "Bksp", ""),
         }
     }
 
-    /// Label without the key hint, used when the full row doesn't fit
-    /// (six buttons need 91 cells; an 80-column pane has 76).
-    pub fn short_label(self) -> &'static str {
-        match self {
-            ButtonId::New => "New",
-            ButtonId::Attach => "Attach",
-            ButtonId::Rename => "Rename",
-            ButtonId::Detach => "Detach",
-            ButtonId::Cancel => "Cancel",
-            ButtonId::Delete => "Delete",
-        }
+    /// Plain text of the button, for width math and tests.
+    pub fn label(self) -> String {
+        let (a, k, b) = self.label_parts();
+        format!("{a}{k}{b}")
     }
 
     pub fn next(self) -> Self {
