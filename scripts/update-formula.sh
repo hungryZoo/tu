@@ -3,7 +3,7 @@
 # sha256 from a SHA256SUMS file. The formula lives in the tap repo
 # (hungryZoo/homebrew-tap), not here, so pass its path:
 #
-#   scripts/update-formula.sh 1.1.1 dist/SHA256SUMS ../homebrew-tap/Formula/tu.rb
+#   scripts/update-formula.sh 1.1.2 dist/SHA256SUMS ../homebrew-tap/Formula/tu.rb
 set -euo pipefail
 
 VERSION="${1:?usage: update-formula.sh VERSION SHA256SUMS FORMULA}"

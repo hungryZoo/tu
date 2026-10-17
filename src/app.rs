@@ -26,6 +26,7 @@ use ratatui::Terminal;
 use crate::conf_setup::{self, ConfItem};
 use crate::state::{AppState, ButtonId, ConfFocus, DeleteFocus, Focus, HitTarget, Screen};
 use crate::tmux;
+use crate::update;
 use crate::view;
 
 const TICK_RATE: Duration = Duration::from_secs(2);
@@ -42,6 +43,8 @@ pub fn run() -> io::Result<AppOutcome> {
 
     let mut state = AppState::new(inside_tmux);
     state.set_sessions(tmux::list_sessions());
+    state.update_notice = update::notice();
+    update::maybe_spawn_check();
 
     let missing =
         conf_setup::missing_items(&conf_setup::conf_path(), conf_setup::detect_popup_support());

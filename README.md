@@ -116,6 +116,12 @@ bar.
   the status-bar button, applies them to the running server,
   then asks you to restart `tu` so the new config takes effect
   cleanly.
+- **Quiet update check.** Once a day, in the background, `tu` asks
+  GitHub for the newest release tag and remembers the answer. If it
+  is newer than the running binary, the status row shows one line
+  such as `v1.2.0 available · brew upgrade tu`, with the upgrade
+  command picked from where the binary is installed. No modal, no
+  prompt, no waiting at launch. `TU_NO_UPDATE_CHECK=1` turns it off.
 - **Catppuccin Mocha** theme with proper focus, hover, press and
   disabled states across every widget.
 
@@ -150,7 +156,7 @@ Useful knobs:
 
 | Variable / flag        | Effect                                        |
 | ---------------------- | --------------------------------------------- |
-| `TU_VERSION=1.1.1`     | pin a release instead of *latest*             |
+| `TU_VERSION=1.1.2`     | pin a release instead of *latest*             |
 | `TU_BIN_DIR=/usr/local/bin` | install somewhere other than `~/.local/bin` |
 | `sh -s -- --help`      | list every option                             |
 
@@ -426,8 +432,29 @@ bind-key -n F12 display-popup -E -B -w 100% -h 100% "tu"
 | ----------------- | ------------------------------------------------------- |
 | `--no-popup`      | inside tmux, draw inline in the pane instead of a popup |
 | `TU_NO_POPUP=1`   | same as `--no-popup`                                    |
+| `TU_NO_UPDATE_CHECK=1` | never check GitHub for a newer release, never show the note |
 | `--version`       | print the version and exit                              |
 | `--help`          | list every flag                                         |
+
+### Update check
+
+`tu` keeps a tiny file at `~/.cache/tu/update-check` (or
+`$XDG_CACHE_HOME/tu/update-check`) with the time of the last check
+and the newest tag it saw. On launch:
+
+1. If the file is less than 24 hours old, nothing happens.
+2. Otherwise the timestamp is written first, then a background
+   thread runs `curl` against `github.com/hungryZoo/tu/releases/latest`
+   with a two-second limit and stores the redirect's tag. The UI never
+   waits for it; a result shows up on the *next* launch.
+3. If the stored tag is newer than the running binary, the status
+   row shows `vX.Y.Z available · <how to upgrade>`. The hint is
+   `brew upgrade tu`, `cargo install tmux-tu`, `re-run install.sh`
+   or the releases URL, chosen from the binary's path.
+
+Failures (offline, no `curl`, rate limits) are silent and retried a
+day later. The note never covers an error message or an action
+result; on narrow terminals it replaces the idle hint instead.
 
 <p align="right"><a href="#table-of-contents">↑ back to top</a></p>
 
@@ -498,6 +525,7 @@ src/
 ├── conf_setup.rs   # ~/.tmux.conf directives + status-bar button
 ├── state.rs        # AppState, Screen, Focus, ButtonId, hit-test
 ├── theme.rs        # Catppuccin Mocha palette + per-state styles
+├── update.rs       # once-a-day release check + status-row note
 ├── view.rs         # render(): pure ratatui draw functions
 └── app.rs          # crossterm event loop + action dispatch
 ```
