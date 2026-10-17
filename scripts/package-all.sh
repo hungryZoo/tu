@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Package every per-target binary into dist/:
+# Package every per-target binary into dist/ ($BIN is `tu`):
 #   tu-<ver>-<triple>.tar.gz  (contains: tu, README.md, LICENSE)
 #   tu_<ver>_<arch>.deb       (amd64 / arm64 / armhf)
 #   tu-<ver>-1.<arch>.rpm     (x86_64 / aarch64)
@@ -12,13 +12,13 @@ set -euo pipefail
 
 export PATH="$HOME/.rustup/toolchains/stable-aarch64-apple-darwin/bin:$HOME/.cargo/bin:$PATH"
 
-# Version comes from Cargo.toml so a release bump is a one-file change;
-# override with VERSION=... if you must.
+# BIN and VERSION come from Cargo.toml via meta.sh, so a rename or a
+# version bump is a one-file change. Override with VERSION=... if you must.
 DIST_DIR="dist"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
-VERSION="${VERSION:-$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)}"
-[ -n "$VERSION" ] || { echo "could not read version from Cargo.toml" >&2; exit 1; }
+# shellcheck source=scripts/meta.sh
+source "$ROOT/scripts/meta.sh"
 
 mkdir -p "$DIST_DIR"
 
@@ -35,19 +35,19 @@ TARGETS=(
 
 echo ">>> tarballs"
 for t in "${TARGETS[@]}"; do
-    bin="target/$t/release/tu"
+    bin="target/$t/release/$BIN"
     if [[ ! -f "$bin" ]]; then
         echo "    SKIP $t (binary missing)"
         continue
     fi
     stage="$(mktemp -d)"
-    cp "$bin" "$stage/tu"
+    cp "$bin" "$stage/$BIN"
     cp README.md LICENSE "$stage/"
     # COPYFILE_DISABLE keeps macOS bsdtar from adding ._* / xattr
     # headers that GNU tar on Linux then warns about on extract.
-    COPYFILE_DISABLE=1 tar -czf "$DIST_DIR/tu-$VERSION-$t.tar.gz" -C "$stage" tu README.md LICENSE
+    COPYFILE_DISABLE=1 tar -czf "$DIST_DIR/$BIN-$VERSION-$t.tar.gz" -C "$stage" "$BIN" README.md LICENSE
     rm -rf "$stage"
-    echo "    $DIST_DIR/tu-$VERSION-$t.tar.gz"
+    echo "    $DIST_DIR/$BIN-$VERSION-$t.tar.gz"
 done
 
 echo ">>> .deb (cargo-deb)"
@@ -59,7 +59,7 @@ DEB_TARGETS=(
     arm-unknown-linux-gnueabihf
 )
 for t in "${DEB_TARGETS[@]}"; do
-    if [[ ! -f "target/$t/release/tu" ]]; then
+    if [[ ! -f "target/$t/release/$BIN" ]]; then
         echo "    SKIP $t (binary missing)"
         continue
     fi
@@ -74,7 +74,7 @@ RPM_TARGETS=(
     aarch64-unknown-linux-gnu
 )
 for t in "${RPM_TARGETS[@]}"; do
-    if [[ ! -f "target/$t/release/tu" ]]; then
+    if [[ ! -f "target/$t/release/$BIN" ]]; then
         echo "    SKIP $t (binary missing)"
         continue
     fi
@@ -86,15 +86,15 @@ echo ">>> version-less package aliases"
 # GitHub serves /releases/latest/download/<name> for any asset name, so
 # a stable name lets the README stay correct across releases. The
 # package metadata inside still carries the real version.
-for f in "$DIST_DIR"/tu_"$VERSION"_*.deb; do
+for f in "$DIST_DIR"/"$BIN"_"$VERSION"_*.deb; do
     [[ -f "$f" ]] || continue
-    alias="$DIST_DIR/tu_${f##*_}"
+    alias="$DIST_DIR/${BIN}_${f##*_}"
     cp "$f" "$alias"
     echo "    $alias"
 done
-for f in "$DIST_DIR"/tu-"$VERSION"-1.*.rpm; do
+for f in "$DIST_DIR"/"$BIN"-"$VERSION"-1.*.rpm; do
     [[ -f "$f" ]] || continue
-    alias="$DIST_DIR/tu-${f##*-1.}"
+    alias="$DIST_DIR/$BIN-${f##*-1.}"
     cp "$f" "$alias"
     echo "    $alias"
 done

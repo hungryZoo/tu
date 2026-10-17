@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
-# Build tu for every supported target. Native macOS builds use cargo,
-# Linux cross builds use cargo-zigbuild. Output binaries live under
-# `target/<triple>/release/tu` and are *not* copied here -- packaging
-# happens in scripts/package-all.sh.
+# Build the binary for every supported target. Native macOS builds use
+# cargo, Linux cross builds use cargo-zigbuild. Output binaries live
+# under `target/<triple>/release/$BIN` and are *not* copied here --
+# packaging happens in scripts/package-all.sh.
 set -euo pipefail
 
 export PATH="$HOME/.rustup/toolchains/stable-aarch64-apple-darwin/bin:$HOME/.cargo/bin:$PATH"
+# shellcheck source=scripts/meta.sh
+source "$(dirname "$0")/meta.sh"
 
 NATIVE_TARGETS=(
     aarch64-apple-darwin
@@ -33,7 +35,7 @@ done
 
 echo "=== Built binaries ==="
 for t in "${NATIVE_TARGETS[@]}" "${ZIG_TARGETS[@]}"; do
-    b="target/$t/release/tu"
+    b="target/$t/release/$BIN"
     if [[ -f "$b" ]]; then
         printf '  %-32s %s\n' "$t" "$(ls -lh "$b" | awk '{print $5}')"
     else

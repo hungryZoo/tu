@@ -530,6 +530,29 @@ src/
 └── app.rs          # crossterm event loop + action dispatch
 ```
 
+### Naming
+
+| What                      | Name      | Defined in                       |
+| ------------------------- | --------- | -------------------------------- |
+| crates.io crate           | `tmux-tu` | `Cargo.toml` `[package].name`    |
+| executable                | `tu`      | `Cargo.toml` `[[bin]].name`      |
+| `.deb` / `.rpm` package   | `tu`      | `Cargo.toml` `[package.metadata.*].name` |
+| release asset prefix      | `tu`      | follows the executable           |
+
+Plain `tu` was already taken on crates.io, so only the crate
+identifier carries the long name. Every script reads these from
+`Cargo.toml` through `scripts/meta.sh`; nothing else hard-codes a
+name, so a rename is a one-file change.
+
+### Continuous integration
+
+[`ci`](.github/workflows/ci.yml) runs on every push and pull
+request: `cargo fmt --check`, `cargo clippy -D warnings`,
+`cargo test`, then a real `scripts/package-all.sh` pass on the native
+target that asserts the tarball, `.deb`, `.rpm` and their version-less
+aliases exist with the expected names. Anything that would break a
+release fails here first.
+
 ### Building releases
 
 #### From GitHub Actions (the normal path)
@@ -538,6 +561,8 @@ The [`release`](.github/workflows/release.yml) workflow does the
 whole thing on one Ubuntu runner: cross-builds all eight targets
 with `cargo-zigbuild` (macOS included), packages tarballs +
 `.deb` + `.rpm` + `SHA256SUMS`, and publishes the GitHub release.
+The tag is created only after the build and packaging succeed, so a
+failed run never leaves a tag without a release.
 
 Homebrew and crates.io are updated afterwards from a developer
 machine, using the local `gh` login and `cargo login` rather than
@@ -557,8 +582,10 @@ To cut a release:
    `.github/release-notes/vX.Y.Z.md` (the first `# heading` becomes
    the release title), merge to `main`.
 2. Either push a tag — `git tag vX.Y.Z && git push origin vX.Y.Z` —
-   or open *Actions → release → Run workflow* on `main`, which
-   creates the tag for you if it doesn't exist.
+   or open *Actions → release → Run workflow* on `main`, which builds
+   first and then creates the tag for you. Re-running it for a version
+   that already has a release rebuilds that tag's commit and replaces
+   the assets.
 
 The workflow refuses a tag whose version doesn't match `Cargo.toml`.
 
@@ -599,12 +626,10 @@ scripts/update-formula.sh <version> dist/SHA256SUMS   # refresh the tap
 3. Open a PR against `main`. Small, scoped PRs are far easier
    to land.
 
-The Python prototype (Textual) lives on the
-[`python-legacy`](https://github.com/hungryZoo/tu/tree/python-legacy)
-branch, tagged
-[`v0.9.0`](https://github.com/hungryZoo/tu/releases/tag/v0.9.0).
-It's frozen — bug-fix PRs there will be considered, but new
-features go into the Rust tree.
+The Python prototype (Textual) is preserved at tag
+[`v0.9.0`](https://github.com/hungryZoo/tu/releases/tag/v0.9.0)
+(`git checkout v0.9.0`). It's frozen; all development happens in the
+Rust tree.
 
 <p align="right"><a href="#table-of-contents">↑ back to top</a></p>
 
