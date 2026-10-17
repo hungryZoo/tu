@@ -126,6 +126,7 @@ fn handle_key(state: &mut AppState, key: KeyEvent) {
     match state.screen.clone() {
         Screen::Main => handle_key_main(state, key),
         Screen::ConfirmDelete { name, focus } => handle_key_delete(state, key, name, focus),
+        Screen::Rename { original, input } => handle_key_rename(state, key, original, input),
         Screen::ConfSetup { focus, .. } => handle_key_conf(state, key, focus),
         Screen::RestartNotice { .. } => handle_key_notice(state, key),
     }
@@ -144,6 +145,7 @@ fn handle_key_main(state: &mut AppState, key: KeyEvent) {
         }
         KeyCode::Char('n') => action_new_session(state),
         KeyCode::Char('a') => action_attach_selected(state),
+        KeyCode::Char('r') => action_open_rename_modal(state),
         KeyCode::Char('d') => action_detach(state),
         // Backspace is the advertised Delete key (it's the key labelled
         // "delete" on Mac keyboards); forward-Delete keeps working too.
@@ -189,6 +191,31 @@ fn handle_key_delete(state: &mut AppState, key: KeyEvent, name: String, focus: D
             DeleteFocus::Confirm => confirm_delete(state, &name),
         },
         _ => {}
+    }
+}
+
+fn handle_key_rename(state: &mut AppState, key: KeyEvent, original: String, mut input: String) {
+    let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+    match key.code {
+        KeyCode::Esc => dismiss_modal(state),
+        KeyCode::Char('c') if ctrl => dismiss_modal(state),
+        KeyCode::Enter => confirm_rename(state, &original, &input),
+        KeyCode::Char('u') if ctrl => set_rename_input(state, String::new()),
+        KeyCode::Backspace => {
+            input.pop();
+            set_rename_input(state, input);
+        }
+        KeyCode::Char(c) if !ctrl => {
+            input.push(c);
+            set_rename_input(state, input);
+        }
+        _ => {}
+    }
+}
+
+fn set_rename_input(state: &mut AppState, new_input: String) {
+    if let Screen::Rename { input, .. } = &mut state.screen {
+        *input = new_input;
     }
 }
 
@@ -302,6 +329,10 @@ fn trigger_hit(state: &mut AppState, target: HitTarget) {
                 action_attach_selected(state);
             }
         }
+        (Screen::Rename { .. }, HitTarget::ModalPrimary) => dismiss_modal(state),
+        (Screen::Rename { original, input }, HitTarget::ModalSecondary) => {
+            confirm_rename(state, &original, &input);
+        }
         (Screen::ConfirmDelete { .. }, HitTarget::ModalPrimary) => dismiss_modal(state),
         (Screen::ConfirmDelete { name, .. }, HitTarget::ModalSecondary) => {
             confirm_delete(state, &name);
@@ -320,7 +351,9 @@ fn trigger_hit(state: &mut AppState, target: HitTarget) {
 fn activate_main_button(state: &mut AppState, button: ButtonId) {
     if !button_enabled(state, button) {
         match button {
-            ButtonId::Attach | ButtonId::Delete => state.set_error("No session selected."),
+            ButtonId::Attach | ButtonId::Rename | ButtonId::Delete => {
+                state.set_error("No session selected.")
+            }
             ButtonId::Detach => state.set_error("Detach only works from inside tmux."),
             _ => {}
         }
@@ -329,6 +362,7 @@ fn activate_main_button(state: &mut AppState, button: ButtonId) {
     match button {
         ButtonId::New => action_new_session(state),
         ButtonId::Attach => action_attach_selected(state),
+        ButtonId::Rename => action_open_rename_modal(state),
         ButtonId::Detach => action_detach(state),
         ButtonId::Cancel => state.should_exit = true,
         ButtonId::Delete => action_open_delete_modal(state),
@@ -338,8 +372,47 @@ fn activate_main_button(state: &mut AppState, button: ButtonId) {
 fn button_enabled(state: &AppState, button: ButtonId) -> bool {
     match button {
         ButtonId::New | ButtonId::Cancel => true,
-        ButtonId::Attach | ButtonId::Delete => state.has_sessions(),
+        ButtonId::Attach | ButtonId::Rename | ButtonId::Delete => state.has_sessions(),
         ButtonId::Detach => state.inside_tmux,
+    }
+}
+
+fn action_open_rename_modal(state: &mut AppState) {
+    let Some(name) = state.selected_name().map(str::to_owned) else {
+        state.set_error("No session selected.");
+        return;
+    };
+    state.screen = Screen::Rename {
+        original: name.clone(),
+        input: name,
+    };
+}
+
+fn confirm_rename(state: &mut AppState, original: &str, input: &str) {
+    if input == original {
+        state.screen = Screen::Main;
+        return;
+    }
+    if let Some(problem) = tmux::session_name_problem(input) {
+        // Keep the modal open; the hint line already shows the problem.
+        state.set_error(problem);
+        return;
+    }
+    if state.sessions.iter().any(|s| s.name == input) {
+        state.set_error(format!("A session named '{input}' already exists."));
+        return;
+    }
+    let r = tmux::rename_session(original, input);
+    if !r.ok() {
+        state.set_error(format!("Rename failed: {}", short_err(&r.stderr)));
+        return;
+    }
+    state.set_info(format!("Renamed '{original}' to '{input}'."));
+    state.screen = Screen::Main;
+    state.set_sessions(tmux::list_sessions());
+    // Follow the renamed session so the highlight doesn't jump away.
+    if let Some(i) = state.sessions.iter().position(|s| s.name == input) {
+        state.selected = i;
     }
 }
 
@@ -576,7 +649,7 @@ mod tests {
                 state: crossterm::event::KeyEventState::empty(),
             },
         );
-        assert_eq!(s.focus, Focus::Button(ButtonId::Detach));
+        assert_eq!(s.focus, Focus::Button(ButtonId::Rename));
         handle_key_main(
             &mut s,
             KeyEvent {
@@ -587,6 +660,65 @@ mod tests {
             },
         );
         assert_eq!(s.focus, Focus::Button(ButtonId::Attach));
+    }
+
+    #[test]
+    fn r_opens_rename_prefilled_with_current_name() {
+        let mut s = make_state(false, &["work", "play"]);
+        s.selected = 1;
+        handle_key_main(&mut s, key(KeyCode::Char('r')));
+        match &s.screen {
+            Screen::Rename { original, input } => {
+                assert_eq!(original, "play");
+                assert_eq!(input, "play");
+            }
+            other => panic!("expected Rename, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rename_without_session_shows_error() {
+        let mut s = make_state(false, &[]);
+        handle_key_main(&mut s, key(KeyCode::Char('r')));
+        assert!(matches!(s.screen, Screen::Main));
+        assert!(s.status_message.contains("No session"));
+    }
+
+    #[test]
+    fn rename_modal_edits_and_cancels() {
+        let mut s = make_state(false, &["work"]);
+        action_open_rename_modal(&mut s);
+        handle_key(&mut s, key(KeyCode::Backspace));
+        handle_key(&mut s, key(KeyCode::Char('x')));
+        assert!(matches!(&s.screen, Screen::Rename { input, .. } if input == "worx"));
+        handle_key(
+            &mut s,
+            KeyEvent {
+                code: KeyCode::Char('u'),
+                modifiers: KeyModifiers::CONTROL,
+                kind: KeyEventKind::Press,
+                state: crossterm::event::KeyEventState::empty(),
+            },
+        );
+        assert!(matches!(&s.screen, Screen::Rename { input, .. } if input.is_empty()));
+        handle_key(&mut s, key(KeyCode::Esc));
+        assert!(matches!(s.screen, Screen::Main));
+    }
+
+    #[test]
+    fn rename_rejects_bad_and_duplicate_names_without_calling_tmux() {
+        let mut s = make_state(false, &["work", "play"]);
+        confirm_rename(&mut s, "work", "a:b");
+        assert!(s.status_message.contains("':'"));
+        confirm_rename(&mut s, "work", "play");
+        assert!(s.status_message.contains("already exists"));
+        // Unchanged name is a silent no-op that just closes the modal.
+        s.screen = Screen::Rename {
+            original: "work".into(),
+            input: "work".into(),
+        };
+        confirm_rename(&mut s, "work", "work");
+        assert!(matches!(s.screen, Screen::Main));
     }
 
     #[test]

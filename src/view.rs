@@ -56,6 +56,9 @@ pub fn render(f: &mut Frame, state: &mut AppState) {
     let modal = match &state.screen {
         Screen::Main => None,
         Screen::ConfirmDelete { name, focus } => Some(ModalSnapshot::Delete(name.clone(), *focus)),
+        Screen::Rename { original, input } => {
+            Some(ModalSnapshot::Rename(original.clone(), input.clone()))
+        }
         Screen::ConfSetup { items, focus } => {
             let lines: Vec<String> = items.iter().flat_map(|i| i.lines()).collect();
             Some(ModalSnapshot::Conf(lines, *focus))
@@ -67,6 +70,9 @@ pub fn render(f: &mut Frame, state: &mut AppState) {
         match snap {
             ModalSnapshot::Delete(name, focus) => {
                 render_confirm_delete(f, area, state, &name, focus);
+            }
+            ModalSnapshot::Rename(original, input) => {
+                render_rename(f, area, state, &original, &input);
             }
             ModalSnapshot::Conf(lines, focus) => {
                 render_conf_setup(f, area, state, &lines, focus);
@@ -83,6 +89,7 @@ pub fn render(f: &mut Frame, state: &mut AppState) {
 
 enum ModalSnapshot {
     Delete(String, DeleteFocus),
+    Rename(String, String),
     Conf(Vec<String>, ConfFocus),
     Notice(String),
 }
@@ -209,13 +216,35 @@ fn render_session_list(f: &mut Frame, area: Rect, state: &mut AppState) {
 
 // --------------------------------------------------------- buttons
 
-fn render_buttons(f: &mut Frame, area: Rect, state: &mut AppState) {
-    // One column between buttons keeps the five labels (76 cells with
-    // "Cancel (Esc)" and "Delete (Bksp)") inside an 80-column pane.
+/// Pick full or short labels so the whole row fits `width`.
+fn button_labels(width: u16) -> (Vec<&'static str>, u16) {
     let spacer: u16 = 1;
-    let widths: Vec<u16> = BUTTON_ORDER
+    let fits = |labels: &[&str]| {
+        labels
+            .iter()
+            .map(|l| l.chars().count() as u16 + 4)
+            .sum::<u16>()
+            + spacer * (labels.len() as u16 - 1)
+            <= width
+    };
+    let full: Vec<&str> = BUTTON_ORDER.iter().map(|b| b.label()).collect();
+    if fits(&full) {
+        return (full, spacer);
+    }
+    (
+        BUTTON_ORDER.iter().map(|b| b.short_label()).collect(),
+        spacer,
+    )
+}
+
+fn render_buttons(f: &mut Frame, area: Rect, state: &mut AppState) {
+    // Six labelled buttons need 91 cells; an 80-column pane has 76, so
+    // the row drops the "(key)" hints when it must. The hint bar below
+    // still lists every key.
+    let (labels, spacer) = button_labels(area.width);
+    let widths: Vec<u16> = labels
         .iter()
-        .map(|b| (b.label().chars().count() as u16) + 4)
+        .map(|l| (l.chars().count() as u16) + 4)
         .collect();
 
     let total: u16 = widths.iter().sum::<u16>() + spacer * (BUTTON_ORDER.len() as u16 - 1);
@@ -238,7 +267,7 @@ fn render_buttons(f: &mut Frame, area: Rect, state: &mut AppState) {
         render_styled_button(
             f,
             rect,
-            button.label(),
+            labels[i],
             button.accent(),
             visual,
             ButtonContext::Main,
@@ -266,7 +295,7 @@ fn button_visual(state: &AppState, button: ButtonId) -> ButtonVisual {
 fn button_enabled(state: &AppState, button: ButtonId) -> bool {
     match button {
         ButtonId::New | ButtonId::Cancel => true,
-        ButtonId::Attach | ButtonId::Delete => state.has_sessions(),
+        ButtonId::Attach | ButtonId::Rename | ButtonId::Delete => state.has_sessions(),
         ButtonId::Detach => state.inside_tmux,
     }
 }
@@ -316,6 +345,9 @@ fn render_hint(f: &mut Frame, area: Rect) {
         separator(),
         key("a"),
         word(" Attach"),
+        separator(),
+        key("r"),
+        word(" Rename"),
         separator(),
         key("d"),
         word(" Detach"),
@@ -404,6 +436,46 @@ fn render_confirm_delete(
     );
 }
 
+fn render_rename(f: &mut Frame, area: Rect, state: &mut AppState, original: &str, input: &str) {
+    let title = format!(" Rename session '{}' ", original);
+    // Field width: room for the name plus some typing headroom.
+    let field_w = (input.chars().count() as u16 + 12).clamp(24, 60);
+    let mut field: Vec<Span> = Vec::new();
+    field.push(Span::styled(" ", theme::modal_input_style()));
+    field.push(Span::styled(input.to_string(), theme::modal_input_style()));
+    field.push(Span::styled(" ", theme::modal_input_cursor_style()));
+    let used = input.chars().count() as u16 + 2;
+    if field_w > used {
+        field.push(Span::styled(
+            " ".repeat((field_w - used) as usize),
+            theme::modal_input_style(),
+        ));
+    }
+    let problem = crate::tmux::session_name_problem(input);
+    let body = vec![
+        Line::from(""),
+        Line::from(Span::styled("New name:", theme::modal_body_style())),
+        Line::from(""),
+        Line::from(field),
+        Line::from(""),
+        Line::from(Span::styled(
+            problem.unwrap_or("Enter renames · Esc cancels · Ctrl-U clears"),
+            theme::modal_subtle_style(),
+        )),
+    ];
+    render_modal(
+        f,
+        area,
+        state,
+        &title,
+        body,
+        ("Cancel (Esc)", palette::OVERLAY1),
+        ("Rename (Enter)", palette::TEAL),
+        false,
+        true,
+    );
+}
+
 fn render_conf_setup(
     f: &mut Frame,
     area: Rect,
@@ -467,7 +539,8 @@ fn render_restart_notice(f: &mut Frame, area: Rect, state: &mut AppState, messag
 
     let widest_line = body.iter().map(|l| l.width() as u16).max().unwrap_or(40);
     let width = widest_line.max(48).min(area.width.saturating_sub(4));
-    let height = (body.len() as u16 + 6).min(area.height.saturating_sub(2));
+    // 2 border + 2 margin + 3 button row = 7 rows around the body.
+    let height = (body.len() as u16 + 7).min(area.height.saturating_sub(2));
     let modal_area = centered_rect(width + 4, height, area);
 
     f.render_widget(Clear, modal_area);
@@ -527,7 +600,8 @@ fn render_modal(
 ) {
     let widest_line = body.iter().map(|l| l.width() as u16).max().unwrap_or(40);
     let width = widest_line.max(48).min(area.width.saturating_sub(4));
-    let height = (body.len() as u16 + 6).min(area.height.saturating_sub(2));
+    // 2 border + 2 margin + 3 button row = 7 rows around the body.
+    let height = (body.len() as u16 + 7).min(area.height.saturating_sub(2));
     let modal_area = centered_rect(width + 4, height, area);
 
     f.render_widget(Clear, modal_area);

@@ -174,6 +174,30 @@ pub fn kill_session(name: &str) -> TmuxResult {
     run(&["kill-session", "-t", name])
 }
 
+pub fn rename_session(old: &str, new: &str) -> TmuxResult {
+    run(&["rename-session", "-t", old, new])
+}
+
+/// Why a proposed session name is unusable, or `None` if it's fine.
+/// Mirrors tmux's own rules: non-empty, and no `:` or `.` because
+/// both are target separators (`session:window.pane`).
+pub fn session_name_problem(name: &str) -> Option<&'static str> {
+    let trimmed = name.trim();
+    if trimmed.is_empty() {
+        return Some("Name cannot be empty.");
+    }
+    if trimmed != name {
+        return Some("Name cannot start or end with spaces.");
+    }
+    if name.contains(':') || name.contains('.') {
+        return Some("Name cannot contain ':' or '.'.");
+    }
+    if name.chars().any(char::is_control) {
+        return Some("Name cannot contain control characters.");
+    }
+    None
+}
+
 // ----------------------------------------------------- options
 
 pub fn server_running() -> bool {
@@ -286,6 +310,18 @@ mod tests {
     #[test]
     fn attach_argv_omits_target_when_none() {
         assert_eq!(attach_argv(None), vec!["tmux", "attach-session"]);
+    }
+
+    #[test]
+    fn session_name_rules_match_tmux() {
+        assert_eq!(session_name_problem("work"), None);
+        assert_eq!(session_name_problem("my project-2"), None);
+        assert!(session_name_problem("").is_some());
+        assert!(session_name_problem("   ").is_some());
+        assert!(session_name_problem(" work").is_some());
+        assert!(session_name_problem("a:b").is_some());
+        assert!(session_name_problem("v1.2").is_some());
+        assert!(session_name_problem("x\ty").is_some());
     }
 
     #[test]

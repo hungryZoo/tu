@@ -19,19 +19,23 @@ use crate::models::Session;
 /// genuine separate clicks don't accidentally merge.
 pub const DOUBLE_CLICK_THRESHOLD: Duration = Duration::from_millis(450);
 
-/// Five clickable buttons across the bottom of the main view.
+/// Six clickable buttons across the bottom of the main view.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ButtonId {
     New,
     Attach,
+    Rename,
     Detach,
     Cancel,
     Delete,
 }
 
-pub const BUTTON_ORDER: [ButtonId; 5] = [
+pub const BUTTON_COUNT: usize = 6;
+
+pub const BUTTON_ORDER: [ButtonId; BUTTON_COUNT] = [
     ButtonId::New,
     ButtonId::Attach,
+    ButtonId::Rename,
     ButtonId::Detach,
     ButtonId::Cancel,
     ButtonId::Delete,
@@ -46,9 +50,23 @@ impl ButtonId {
         match self {
             ButtonId::New => "New (n)",
             ButtonId::Attach => "Attach (a)",
+            ButtonId::Rename => "Rename (r)",
             ButtonId::Detach => "Detach (d)",
             ButtonId::Cancel => "Cancel (Esc)",
             ButtonId::Delete => "Delete (Bksp)",
+        }
+    }
+
+    /// Label without the key hint, used when the full row doesn't fit
+    /// (six buttons need 91 cells; an 80-column pane has 76).
+    pub fn short_label(self) -> &'static str {
+        match self {
+            ButtonId::New => "New",
+            ButtonId::Attach => "Attach",
+            ButtonId::Rename => "Rename",
+            ButtonId::Detach => "Detach",
+            ButtonId::Cancel => "Cancel",
+            ButtonId::Delete => "Delete",
         }
     }
 
@@ -95,6 +113,12 @@ pub enum Screen {
         name: String,
         focus: DeleteFocus,
     },
+    /// Text-entry modal for `tmux rename-session`. `input` starts as
+    /// the current name so a small edit is a few keystrokes.
+    Rename {
+        original: String,
+        input: String,
+    },
     ConfSetup {
         items: Vec<ConfItem>,
         focus: ConfFocus,
@@ -130,7 +154,7 @@ pub enum StatusKind {
 /// knows where every widget lives.
 #[derive(Debug, Default)]
 pub struct Geometry {
-    pub buttons: [Option<Rect>; 5],
+    pub buttons: [Option<Rect>; BUTTON_COUNT],
     pub list_inner: Option<Rect>,
     pub modal_primary: Option<Rect>,
     pub modal_secondary: Option<Rect>,
@@ -369,6 +393,8 @@ mod tests {
         assert_eq!(st.focus, Focus::Button(ButtonId::New));
         st.focus_next();
         assert_eq!(st.focus, Focus::Button(ButtonId::Attach));
+        st.focus_next();
+        assert_eq!(st.focus, Focus::Button(ButtonId::Rename));
         for _ in 0..3 {
             st.focus_next();
         }

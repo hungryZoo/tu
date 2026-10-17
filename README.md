@@ -108,6 +108,8 @@ bar.
   ` tu ` label at the right end of tmux's status line opens the
   same full-screen popup — handy when something is running in
   every pane.
+- **Rename in place.** **r** opens a one-field modal prefilled
+  with the current name; Enter runs `tmux rename-session`.
 - **Safe Delete.** **Backspace** (or forward-Delete) opens a
   confirmation modal with focus on *Back* — an accidental Enter
   cancels. **Esc** / **Cancel** just closes `tu`.
@@ -314,6 +316,22 @@ binds a left click on it to the same full-screen popup. Clicks
 anywhere else on the bar keep tmux's default (select the window
 under the pointer).
 
+### Renaming a session
+
+Highlight a row and press **r** (or click **Rename**). A small
+modal opens with the current name already in the field, so a tweak
+is a few keystrokes:
+
+- type to append, **Backspace** to erase, **Ctrl+U** to clear;
+- **Enter** runs `tmux rename-session -t <old> <new>` and keeps the
+  renamed session highlighted;
+- **Esc** cancels.
+
+Names follow tmux's rules: non-empty, no leading or trailing
+spaces, and no `:` or `.` (both are target separators). The hint
+line under the field says what is wrong while you type, and a name
+that already exists is refused before tmux is called.
+
 ### Deleting a session
 
 Hard-deletes are gated by a confirmation modal so a single
@@ -337,6 +355,7 @@ keystroke can't nuke anything.
 | **Home** / **End**          | jump to first / last session             |
 | **Enter** / **a**           | attach / switch to the selected session  |
 | **n**                       | new session                              |
+| **r**                       | rename selected session                  |
 | **d**                       | detach current client (inside tmux only) |
 | **Backspace** / **Delete**  | delete selected session (with confirm)   |
 | **Tab** / **Shift+Tab**, ← / → | move focus between buttons            |

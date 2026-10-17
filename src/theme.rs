@@ -65,6 +65,7 @@ impl ButtonId {
         match self {
             ButtonId::New => palette::GREEN,
             ButtonId::Attach => palette::BLUE,
+            ButtonId::Rename => palette::TEAL,
             ButtonId::Detach => palette::PEACH,
             ButtonId::Cancel => palette::OVERLAY1,
             ButtonId::Delete => palette::RED,
@@ -300,6 +301,16 @@ pub fn modal_subtle_style() -> Style {
         .fg(palette::OVERLAY1)
         .bg(palette::CRUST)
         .add_modifier(Modifier::ITALIC)
+}
+
+/// The text field inside the Rename modal: a filled strip so its
+/// extent is obvious, with the cursor drawn as a reverse-video cell.
+pub fn modal_input_style() -> Style {
+    Style::default().fg(palette::TEXT).bg(palette::SURFACE0)
+}
+
+pub fn modal_input_cursor_style() -> Style {
+    Style::default().fg(palette::CRUST).bg(palette::TEAL)
 }
 
 pub fn modal_directive_style() -> Style {
