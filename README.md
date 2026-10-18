@@ -99,11 +99,11 @@ bar.
   `tmux attach-session` so you skip the flicker. Inside tmux,
   the same actions use `switch-client`; **Detach** becomes
   available.
-- **Full-screen popup inside tmux.** Run `tu` from any pane on
-  tmux ≥ 3.2 and it re-launches itself in a `display-popup`
-  covering the whole client, then hands the pane back when it
-  closes. `--no-popup` (or `TU_NO_POPUP=1`) keeps the inline
-  behaviour.
+- **Popup over your work inside tmux.** Run `tu` from any pane on
+  tmux ≥ 3.2 and it re-launches itself in a `display-popup` sized
+  60 % of the client, so the panes underneath stay visible and keep
+  updating; it hands the pane back when it closes. `--size 100` for
+  full screen, `--no-popup` (or `TU_NO_POPUP=1`) for inline.
 - **A `tu` button on the status bar.** One click on the bold
   ` tu ` label at the right end of tmux's status line opens the
   same full-screen popup — handy when something is running in
@@ -160,7 +160,7 @@ Useful knobs:
 
 | Variable / flag        | Effect                                        |
 | ---------------------- | --------------------------------------------- |
-| `TU_VERSION=1.1.4`     | pin a release instead of *latest*             |
+| `TU_VERSION=1.1.5`     | pin a release instead of *latest*             |
 | `TU_BIN_DIR=/usr/local/bin` | install somewhere other than `~/.local/bin` |
 | `sh -s -- --help`      | list every option                             |
 
@@ -479,6 +479,7 @@ bind-key -n F12 display-popup -E -B -w 100% -h 100% "tu"
 | `TU_NO_UPDATE_CHECK=1` | never check GitHub for a newer release, never show the note |
 | `--check-update`  | check GitHub right now, print the result, exit (0 up to date, 10 update available, 11 unreachable) |
 | `--update`        | check now and, if newer, upgrade in place with the detected install method (0 done or up to date, 1 upgrade failed, 11 unreachable) |
+| `--size PCT` / `TU_SIZE` | window size, 10-100 (default 60): the tmux popup size, or a centred window outside tmux. 100 = full screen |
 | `--version`       | print the version and exit                              |
 | `--help`          | list every flag                                         |
 
