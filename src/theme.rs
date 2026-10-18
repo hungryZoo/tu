@@ -162,12 +162,15 @@ pub fn title_brand_style() -> Style {
 /// Top-right close chip: a filled block like the brand chip, so it
 /// reads as a button even without a border.
 pub fn close_chip_style(visual: ButtonVisual) -> Style {
+    // Black block with white text at rest, so it doesn't read as a
+    // selected / focused control (those use the grey surfaces).
+    // Hover and focus turn the block red; pressed inverts it.
     let (fg, bg) = match visual {
-        ButtonVisual::Idle => (palette::RED, palette::SURFACE1),
-        ButtonVisual::Hover => (palette::RED, palette::SURFACE2),
-        ButtonVisual::Focus => (palette::CRUST, palette::MAROON),
-        ButtonVisual::Pressed => (palette::CRUST, palette::RED),
-        ButtonVisual::Disabled => (palette::OVERLAY0, palette::SURFACE0),
+        ButtonVisual::Idle => (palette::TEXT, palette::CRUST),
+        ButtonVisual::Hover => (palette::CRUST, palette::RED),
+        ButtonVisual::Focus => (palette::CRUST, palette::RED),
+        ButtonVisual::Pressed => (palette::RED, palette::CRUST),
+        ButtonVisual::Disabled => (palette::OVERLAY0, palette::CRUST),
     };
     Style::default().fg(fg).bg(bg).add_modifier(Modifier::BOLD)
 }
