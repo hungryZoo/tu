@@ -20,68 +20,86 @@ use crate::update::UpdatePlan;
 /// genuine separate clicks don't accidentally merge.
 pub const DOUBLE_CLICK_THRESHOLD: Duration = Duration::from_millis(450);
 
-/// Six clickable buttons across the bottom of the main view.
+/// Five clickable buttons across the bottom of the main view, plus
+/// the Close chip in the window's top-right corner.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ButtonId {
-    New,
     Attach,
+    New,
     Rename,
-    Detach,
-    Cancel,
     Delete,
+    Detach,
+    /// Top-right `x`; not part of the bottom row.
+    Close,
 }
 
-pub const BUTTON_COUNT: usize = 6;
+pub const BUTTON_COUNT: usize = 5;
 
+/// Bottom row, left to right. Attach first: it is the default focus,
+/// so ↑/↓ + Enter reads as "pick a session, attach".
 pub const BUTTON_ORDER: [ButtonId; BUTTON_COUNT] = [
-    ButtonId::New,
     ButtonId::Attach,
+    ButtonId::New,
     ButtonId::Rename,
-    ButtonId::Detach,
-    ButtonId::Cancel,
     ButtonId::Delete,
+    ButtonId::Detach,
+];
+
+/// Tab / ← / → walk this ring: the row, then Close, then back.
+const FOCUS_RING: [ButtonId; BUTTON_COUNT + 1] = [
+    ButtonId::Attach,
+    ButtonId::New,
+    ButtonId::Rename,
+    ButtonId::Delete,
+    ButtonId::Detach,
+    ButtonId::Close,
 ];
 
 impl ButtonId {
-    pub fn index(self) -> usize {
-        BUTTON_ORDER.iter().position(|&b| b == self).unwrap()
+    /// Position in the bottom row; `None` for Close.
+    pub fn row_index(self) -> Option<usize> {
+        BUTTON_ORDER.iter().position(|&b| b == self)
     }
 
-    /// Widest form, `Word (key)`: six of these need 91 cells.
+    fn ring_index(self) -> usize {
+        FOCUS_RING.iter().position(|&b| b == self).unwrap()
+    }
+
+    /// Widest form, `Word (key)`: the five row buttons need 74 cells.
     pub fn full_parts(self) -> (&'static str, &'static str, &'static str) {
         match self {
-            ButtonId::New => ("New (", "n", ")"),
             ButtonId::Attach => ("Attach (", "a", ")"),
+            ButtonId::New => ("New (", "n", ")"),
             ButtonId::Rename => ("Rename (", "r", ")"),
-            ButtonId::Detach => ("Detach (", "d", ")"),
-            ButtonId::Cancel => ("Cancel (", "Esc", ")"),
             ButtonId::Delete => ("Delete (", "Bksp", ")"),
+            ButtonId::Detach => ("Detach (", "d", ")"),
+            ButtonId::Close => ("Close (", "Esc", ")"),
         }
     }
 
     /// Word only, with the shortcut shown in place: the initial for
-    /// letter keys, a short token after the word for Esc / Backspace.
-    /// Six of these need 71 cells, which fits an 80-column pane.
+    /// letter keys, a short token after the word for Backspace. The
+    /// row needs 56 cells this way.
     pub fn word_parts(self) -> (&'static str, &'static str, &'static str) {
         match self {
-            ButtonId::New => ("", "N", "ew"),
             ButtonId::Attach => ("", "A", "ttach"),
+            ButtonId::New => ("", "N", "ew"),
             ButtonId::Rename => ("", "R", "ename"),
-            ButtonId::Detach => ("", "D", "etach"),
-            ButtonId::Cancel => ("Cancel ", "Esc", ""),
             ButtonId::Delete => ("Delete ", "Bksp", ""),
+            ButtonId::Detach => ("", "D", "etach"),
+            ButtonId::Close => ("Close ", "Esc", ""),
         }
     }
 
-    /// Just the key, for the two narrowest tiers.
+    /// Just the key, for the two narrowest tiers (32 / 22 cells).
     pub fn key_only(self) -> &'static str {
         match self {
-            ButtonId::New => "N",
             ButtonId::Attach => "A",
+            ButtonId::New => "N",
             ButtonId::Rename => "R",
-            ButtonId::Detach => "D",
-            ButtonId::Cancel => "Esc",
             ButtonId::Delete => "Bksp",
+            ButtonId::Detach => "D",
+            ButtonId::Close => "Esc",
         }
     }
 
@@ -92,21 +110,26 @@ impl ButtonId {
     }
 
     pub fn next(self) -> Self {
-        BUTTON_ORDER[(self.index() + 1) % BUTTON_ORDER.len()]
+        FOCUS_RING[(self.ring_index() + 1) % FOCUS_RING.len()]
     }
 
     pub fn prev(self) -> Self {
-        let i = self.index();
-        let last = BUTTON_ORDER.len() - 1;
-        BUTTON_ORDER[if i == 0 { last } else { i - 1 }]
+        let i = self.ring_index();
+        let last = FOCUS_RING.len() - 1;
+        FOCUS_RING[if i == 0 { last } else { i - 1 }]
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Focus {
-    #[default]
-    List,
     Button(ButtonId),
+}
+
+impl Default for Focus {
+    /// Attach: ↑/↓ pick a session, Enter attaches.
+    fn default() -> Self {
+        Focus::Button(ButtonId::Attach)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -187,6 +210,8 @@ pub struct Geometry {
     pub modal_primary: Option<Rect>,
     pub modal_secondary: Option<Rect>,
     pub update_notice: Option<Rect>,
+    /// The `x` chip in the window's top border.
+    pub close: Option<Rect>,
 }
 
 /// Remembers the previous click so the next one can be classified as
@@ -286,30 +311,18 @@ impl AppState {
     }
 
     pub fn focus_next(&mut self) {
-        self.focus = match self.focus {
-            Focus::List => Focus::Button(ButtonId::New),
-            Focus::Button(b) => {
-                let nxt = b.next();
-                if nxt == BUTTON_ORDER[0] {
-                    Focus::List
-                } else {
-                    Focus::Button(nxt)
-                }
-            }
-        };
+        let Focus::Button(b) = self.focus;
+        self.focus = Focus::Button(b.next());
     }
 
     pub fn focus_prev(&mut self) {
-        self.focus = match self.focus {
-            Focus::List => Focus::Button(*BUTTON_ORDER.last().unwrap()),
-            Focus::Button(b) => {
-                if b == BUTTON_ORDER[0] {
-                    Focus::List
-                } else {
-                    Focus::Button(b.prev())
-                }
-            }
-        };
+        let Focus::Button(b) = self.focus;
+        self.focus = Focus::Button(b.prev());
+    }
+
+    /// Back to the default action after the selection changed.
+    pub fn focus_attach(&mut self) {
+        self.focus = Focus::Button(ButtonId::Attach);
     }
 
     /// True iff at least one session is available — used to grey out
@@ -348,6 +361,11 @@ impl AppState {
         if let Some(r) = self.geom.update_notice {
             if r.contains(pos) {
                 return Some(HitTarget::UpdateNotice);
+            }
+        }
+        if let Some(r) = self.geom.close {
+            if r.contains(pos) {
+                return Some(HitTarget::Button(ButtonId::Close));
             }
         }
 
@@ -415,30 +433,38 @@ mod tests {
     }
 
     #[test]
-    fn focus_cycles_through_buttons_and_list() {
+    fn focus_starts_on_attach_and_rings_through_close() {
         let mut st = AppState::new(false);
-        assert_eq!(st.focus, Focus::List);
-        st.focus_next();
-        assert_eq!(st.focus, Focus::Button(ButtonId::New));
-        st.focus_next();
         assert_eq!(st.focus, Focus::Button(ButtonId::Attach));
-        st.focus_next();
-        assert_eq!(st.focus, Focus::Button(ButtonId::Rename));
-        for _ in 0..3 {
+        let expected = [
+            ButtonId::New,
+            ButtonId::Rename,
+            ButtonId::Delete,
+            ButtonId::Detach,
+            ButtonId::Close,
+            ButtonId::Attach,
+        ];
+        for b in expected {
             st.focus_next();
+            assert_eq!(st.focus, Focus::Button(b));
         }
-        assert_eq!(st.focus, Focus::Button(ButtonId::Delete));
-        st.focus_next();
-        assert_eq!(st.focus, Focus::List);
     }
 
     #[test]
     fn focus_prev_is_inverse() {
         let mut st = AppState::new(false);
         st.focus_prev();
-        assert_eq!(st.focus, Focus::Button(ButtonId::Delete));
+        assert_eq!(st.focus, Focus::Button(ButtonId::Close));
         st.focus_prev();
-        assert_eq!(st.focus, Focus::Button(ButtonId::Cancel));
+        assert_eq!(st.focus, Focus::Button(ButtonId::Detach));
+    }
+
+    #[test]
+    fn close_chip_is_hit_tested_on_main() {
+        let mut st = AppState::new(false);
+        st.geom.close = Some(Rect::new(70, 0, 3, 1));
+        assert_eq!(st.hit_test(71, 0), Some(HitTarget::Button(ButtonId::Close)));
+        assert_eq!(st.hit_test(60, 0), None);
     }
 
     #[test]
@@ -475,7 +501,7 @@ mod tests {
         st.set_sessions(vec![s("a")]);
         st.geom.buttons[0] = Some(Rect::new(0, 0, 10, 3));
         st.geom.list_inner = Some(Rect::new(0, 0, 10, 3));
-        assert_eq!(st.hit_test(2, 1), Some(HitTarget::Button(ButtonId::New)));
+        assert_eq!(st.hit_test(2, 1), Some(HitTarget::Button(ButtonId::Attach)));
     }
 
     #[test]

@@ -112,7 +112,8 @@ bar.
   with the current name; Enter runs `tmux rename-session`.
 - **Safe Delete.** **Backspace** (or forward-Delete) opens a
   confirmation modal with focus on *Back* — an accidental Enter
-  cancels. **Esc** / **Cancel** just closes `tu`.
+  cancels. **Esc**, or the `x` in the top-right corner, just closes
+  `tu`.
 - **Self-bootstrapping `~/.tmux.conf`.** First launch offers to
   append `set -g mouse on`, `set -g history-limit 10000000` and
   the status-bar button, applies them to the running server,
@@ -288,7 +289,7 @@ launched it from your parent shell or from inside a tmux pane.
    at `tu`.
 3. **n** / **New** creates a fresh `tu-N` session and attaches
    to it via the same hand-off.
-4. **Esc** / **Cancel** just closes `tu`.
+4. **Esc** (or the `x` in the top-right corner) just closes `tu`.
 
 **Detach** is greyed out: there is no tmux client to detach.
 
@@ -350,17 +351,23 @@ keystroke can't nuke anything.
 
 ### The button row
 
-Six buttons, one row, however wide the terminal is. The row picks the
-widest form that fits and the shortcut key is always in yellow:
+Five buttons in one row — **Attach · New · Rename · Delete · Detach**
+— plus a red `x` close chip in the window's top-right corner.
+**Attach** has focus by default, so ↑/↓ then Enter means "pick a
+session, attach"; ↑/↓ always put focus back on Attach. **Tab**,
+**Shift+Tab**, ← and → walk the row and the `x`.
+
+The row picks the widest form that fits and the shortcut key is
+always in yellow:
 
 | Available width | Form                                   |
 | --------------- | -------------------------------------- |
-| ≥ 91 cells      | `New (n)` … `Delete (Bksp)`            |
-| ≥ 71 cells      | `New` … `Cancel Esc`, `Delete Bksp` (initial highlighted) |
-| ≥ 40 cells      | bordered keys only: `N` `A` `R` `D` `Esc` `Bksp` |
+| ≥ 74 cells      | `Attach (a)` … `Detach (d)`            |
+| ≥ 56 cells      | `Attach` … `Delete Bksp` … (initial highlighted) |
+| ≥ 32 cells      | bordered keys only: `A` `N` `R` `Bksp` `D` |
 | narrower        | bare keys in the button's own colour; focus and hover still fill the cell |
 
-An 80-column pane (76 usable cells) gets the second form.
+An 80-column pane (76 usable cells) gets the full form.
 
 ### Keyboard & mouse reference
 
@@ -374,8 +381,8 @@ An 80-column pane (76 usable cells) gets the second form.
 | **u**                       | update `tu` (when the status row says a newer release exists) |
 | **d**                       | detach current client (inside tmux only) |
 | **Backspace** / **Delete**  | delete selected session (with confirm)   |
-| **Tab** / **Shift+Tab**, ← / → | move focus between buttons            |
-| **Esc** / **Ctrl+C**        | close `tu`                               |
+| **Tab** / **Shift+Tab**, ← / → | move focus along the buttons and the `x` |
+| **Esc** / **Ctrl+C**, `x`   | close `tu`                               |
 
 Mouse handling uses the full crossterm event stream, including
 motion:

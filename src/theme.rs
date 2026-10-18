@@ -67,7 +67,7 @@ impl ButtonId {
             ButtonId::Attach => palette::BLUE,
             ButtonId::Rename => palette::TEAL,
             ButtonId::Detach => palette::PEACH,
-            ButtonId::Cancel => palette::OVERLAY1,
+            ButtonId::Close => palette::RED,
             ButtonId::Delete => palette::RED,
         }
     }

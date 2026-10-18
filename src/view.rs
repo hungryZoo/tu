@@ -23,9 +23,17 @@ pub fn render(f: &mut Frame, state: &mut AppState) {
         .borders(Borders::ALL)
         .border_style(theme::outer_border_style(state.inside_tmux))
         .style(theme::window_bg())
-        .title(build_window_title(state.inside_tmux));
+        .title(build_window_title(state.inside_tmux))
+        .title_top(close_chip(state).right_aligned());
     let inner = outer.inner(area);
     f.render_widget(outer, area);
+    // Right-aligned titles end one cell before the corner.
+    let chip_w = CLOSE_CHIP.chars().count() as u16;
+    state.geom.close = if area.width > chip_w + 2 {
+        Some(Rect::new(area.right() - 1 - chip_w, area.y, chip_w, 1))
+    } else {
+        None
+    };
 
     let body = inner.inner(Margin {
         vertical: 0,
@@ -109,6 +117,18 @@ fn build_window_title(inside_tmux: bool) -> Line<'static> {
     ])
 }
 
+/// The close "button": a small chip in the top border. Red `x` at
+/// rest, filled when hovered or focused, inverted while pressed.
+const CLOSE_CHIP: &str = " x ";
+
+fn close_chip(state: &AppState) -> Line<'static> {
+    let visual = button_visual(state, ButtonId::Close);
+    Line::from(Span::styled(
+        CLOSE_CHIP,
+        theme::bare_button_style(palette::RED, visual),
+    ))
+}
+
 // -------------------------------------------------------- section
 
 fn render_section_label(f: &mut Frame, area: Rect) {
@@ -123,7 +143,10 @@ fn render_section_label(f: &mut Frame, area: Rect) {
 // -------------------------------------------------------- session list
 
 fn render_session_list(f: &mut Frame, area: Rect, state: &mut AppState) {
-    let list_focused = matches!(state.focus, Focus::List);
+    // Keyboard focus lives on the button row; the list always shows
+    // its selection in the strong style, since ↑/↓ drive it from
+    // anywhere.
+    let list_focused = true;
 
     let block = Block::new()
         .borders(Borders::ALL)
@@ -221,7 +244,7 @@ fn render_session_list(f: &mut Frame, area: Rect, state: &mut AppState) {
 pub enum ButtonTier {
     /// `New (n)` — key inside parentheses, highlighted.
     Full,
-    /// `New` with its initial highlighted; `Cancel Esc`, `Delete Bksp`.
+    /// `New` with its initial highlighted; `Delete Bksp`.
     Word,
     /// Bordered box holding only the key: `N`, `Esc`.
     KeyBoxed,
@@ -347,7 +370,7 @@ fn button_visual(state: &AppState, button: ButtonId) -> ButtonVisual {
 
 fn button_enabled(state: &AppState, button: ButtonId) -> bool {
     match button {
-        ButtonId::New | ButtonId::Cancel => true,
+        ButtonId::New | ButtonId::Close => true,
         ButtonId::Attach | ButtonId::Rename | ButtonId::Delete => state.has_sessions(),
         ButtonId::Detach => state.inside_tmux,
     }
@@ -765,17 +788,18 @@ mod tier_tests {
 
     #[test]
     fn tier_follows_available_width() {
-        assert_eq!(tier_total(ButtonTier::Full), 91);
-        assert_eq!(tier_total(ButtonTier::Word), 71);
-        assert_eq!(tier_total(ButtonTier::KeyBoxed), 40);
-        assert_eq!(tier_total(ButtonTier::KeyBare), 28);
+        assert_eq!(tier_total(ButtonTier::Full), 74);
+        assert_eq!(tier_total(ButtonTier::Word), 56);
+        assert_eq!(tier_total(ButtonTier::KeyBoxed), 32);
+        assert_eq!(tier_total(ButtonTier::KeyBare), 22);
         assert_eq!(button_tier(120), ButtonTier::Full);
-        assert_eq!(button_tier(91), ButtonTier::Full);
-        assert_eq!(button_tier(90), ButtonTier::Word);
-        assert_eq!(button_tier(76), ButtonTier::Word);
-        assert_eq!(button_tier(70), ButtonTier::KeyBoxed);
-        assert_eq!(button_tier(40), ButtonTier::KeyBoxed);
-        assert_eq!(button_tier(39), ButtonTier::KeyBare);
+        assert_eq!(button_tier(76), ButtonTier::Full, "80-column pane");
+        assert_eq!(button_tier(74), ButtonTier::Full);
+        assert_eq!(button_tier(73), ButtonTier::Word);
+        assert_eq!(button_tier(56), ButtonTier::Word);
+        assert_eq!(button_tier(55), ButtonTier::KeyBoxed);
+        assert_eq!(button_tier(32), ButtonTier::KeyBoxed);
+        assert_eq!(button_tier(31), ButtonTier::KeyBare);
         assert_eq!(button_tier(10), ButtonTier::KeyBare);
     }
 }

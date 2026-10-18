@@ -140,8 +140,8 @@ fn handle_key(state: &mut AppState, key: KeyEvent) {
 fn handle_key_main(state: &mut AppState, key: KeyEvent) {
     let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
     match key.code {
-        // "Cancel": Esc closes tu without touching anything. Ctrl-C is
-        // kept as the universal bail-out.
+        // Esc closes tu without touching anything (same as the top-right
+        // Close chip). Ctrl-C is kept as the universal bail-out.
         KeyCode::Esc => {
             state.should_exit = true;
         }
@@ -158,30 +158,30 @@ fn handle_key_main(state: &mut AppState, key: KeyEvent) {
         KeyCode::Backspace | KeyCode::Delete => action_open_delete_modal(state),
         KeyCode::Tab => state.focus_next(),
         KeyCode::BackTab => state.focus_prev(),
-        KeyCode::Up => match state.focus {
-            Focus::List => state.move_selection(-1),
-            _ => state.focus = Focus::List,
-        },
-        KeyCode::Down => match state.focus {
-            Focus::List => state.move_selection(1),
-            _ => state.focus = Focus::List,
-        },
-        KeyCode::Left => {
-            if let Focus::Button(b) = state.focus {
-                state.focus = Focus::Button(b.prev());
-            }
+        // ↑/↓ always move the session selection and put focus back on
+        // Attach, so Enter right after choosing a row attaches.
+        KeyCode::Up => {
+            state.move_selection(-1);
+            state.focus_attach();
         }
-        KeyCode::Right => {
-            if let Focus::Button(b) = state.focus {
-                state.focus = Focus::Button(b.next());
-            }
+        KeyCode::Down => {
+            state.move_selection(1);
+            state.focus_attach();
         }
-        KeyCode::Home => state.move_selection(i32::MIN / 2),
-        KeyCode::End => state.move_selection(i32::MAX / 2),
-        KeyCode::Enter => match state.focus {
-            Focus::List => action_attach_selected(state),
-            Focus::Button(b) => activate_main_button(state, b),
-        },
+        KeyCode::Left => state.focus_prev(),
+        KeyCode::Right => state.focus_next(),
+        KeyCode::Home => {
+            state.move_selection(i32::MIN / 2);
+            state.focus_attach();
+        }
+        KeyCode::End => {
+            state.move_selection(i32::MAX / 2);
+            state.focus_attach();
+        }
+        KeyCode::Enter => {
+            let Focus::Button(b) = state.focus;
+            activate_main_button(state, b);
+        }
         _ => {}
     }
 }
@@ -326,7 +326,7 @@ fn handle_mouse(state: &mut AppState, m: MouseEvent) {
 fn update_focus_from_hit(state: &mut AppState, target: HitTarget) {
     match target {
         HitTarget::Button(b) => state.focus = Focus::Button(b),
-        HitTarget::ListRow(_) => state.focus = Focus::List,
+        HitTarget::ListRow(_) => state.focus_attach(),
         _ => {}
     }
 }
@@ -381,18 +381,18 @@ fn activate_main_button(state: &mut AppState, button: ButtonId) {
         return;
     }
     match button {
-        ButtonId::New => action_new_session(state),
         ButtonId::Attach => action_attach_selected(state),
+        ButtonId::New => action_new_session(state),
         ButtonId::Rename => action_open_rename_modal(state),
-        ButtonId::Detach => action_detach(state),
-        ButtonId::Cancel => state.should_exit = true,
         ButtonId::Delete => action_open_delete_modal(state),
+        ButtonId::Detach => action_detach(state),
+        ButtonId::Close => state.should_exit = true,
     }
 }
 
 fn button_enabled(state: &AppState, button: ButtonId) -> bool {
     match button {
-        ButtonId::New | ButtonId::Cancel => true,
+        ButtonId::New | ButtonId::Close => true,
         ButtonId::Attach | ButtonId::Rename | ButtonId::Delete => state.has_sessions(),
         ButtonId::Detach => state.inside_tmux,
     }
@@ -696,7 +696,7 @@ mod tests {
                 state: crossterm::event::KeyEventState::empty(),
             },
         );
-        assert_eq!(s.focus, Focus::Button(ButtonId::Rename));
+        assert_eq!(s.focus, Focus::Button(ButtonId::New));
         handle_key_main(
             &mut s,
             KeyEvent {
@@ -830,6 +830,31 @@ mod tests {
     }
 
     #[test]
+    fn arrows_pick_a_row_and_refocus_attach() {
+        let mut s = make_state(false, &["work", "play"]);
+        s.focus = Focus::Button(ButtonId::Delete);
+        handle_key_main(&mut s, key(KeyCode::Down));
+        assert_eq!(s.selected, 1);
+        assert_eq!(s.focus, Focus::Button(ButtonId::Attach));
+        handle_key_main(&mut s, key(KeyCode::Enter));
+        assert!(s.should_exit);
+        assert_eq!(
+            s.post_exit_argv
+                .as_ref()
+                .and_then(|a| a.last())
+                .map(String::as_str),
+            Some("play")
+        );
+    }
+
+    #[test]
+    fn close_chip_exits() {
+        let mut s = make_state(false, &["work"]);
+        trigger_hit(&mut s, HitTarget::Button(ButtonId::Close));
+        assert!(s.should_exit);
+    }
+
+    #[test]
     fn esc_cancels_and_exits() {
         let mut s = make_state(false, &[]);
         handle_key_main(
@@ -886,7 +911,7 @@ mod tests {
     #[test]
     fn cancel_button_skips_disabled_handling() {
         let mut s = make_state(false, &[]);
-        activate_main_button(&mut s, ButtonId::Cancel);
+        activate_main_button(&mut s, ButtonId::Close);
         assert!(s.should_exit);
     }
 
