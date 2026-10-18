@@ -118,6 +118,19 @@ fn close_chip(state: &AppState) -> Line<'static> {
     Line::from(Span::styled(CLOSE_CHIP, theme::close_chip_style(visual)))
 }
 
+/// Pad `name` to exactly `width` cells, cutting with `…` when longer.
+fn fit_name(name: &str, width: usize) -> String {
+    let n = name.chars().count();
+    if n <= width {
+        return format!("{name:<width$}");
+    }
+    if width <= 1 {
+        return "…".repeat(width);
+    }
+    let head: String = name.chars().take(width - 1).collect();
+    format!("{head}…")
+}
+
 // -------------------------------------------------------- section
 
 fn render_section_label(f: &mut Frame, area: Rect) {
@@ -155,13 +168,20 @@ fn render_session_list(f: &mut Frame, area: Rect, state: &mut AppState) {
         return;
     }
 
-    let max_name = state
+    // Name column: as wide as the longest name, but never so wide that
+    // the window count (and the attached marker, if any session has
+    // one) would fall off the right edge. Longer names are cut with
+    // an ellipsis instead of pushing the metadata out of view.
+    let any_attached = state.sessions.iter().any(|s| s.attached);
+    let meta_w: usize = 2 + 4 + if any_attached { 2 + 10 } else { 0 }; // "  " + "NNNw" + "  ● attached"
+    let avail = (inner.width as usize).saturating_sub(2 + meta_w); // minus the "▶ " prefix
+    let longest = state
         .sessions
         .iter()
         .map(|s| s.name.chars().count())
         .max()
-        .unwrap_or(8)
-        .max(8);
+        .unwrap_or(8);
+    let max_name = longest.max(8).min(avail.max(8));
 
     let visible_count = inner.height as usize;
     for (visible_i, (abs_i, session)) in state
@@ -191,18 +211,17 @@ fn render_session_list(f: &mut Frame, area: Rect, state: &mut AppState) {
             // Uniform row style — keeps the highlight bar clean.
             let attached = if session.attached { " · attached" } else { "" };
             vec![Span::raw(format!(
-                "{}{:width$}  {:>3}w{}",
+                "{}{}  {:>3}w{}",
                 prefix,
-                session.name,
+                fit_name(&session.name, max_name),
                 session.windows,
                 attached,
-                width = max_name
             ))]
         } else {
             let mut s = vec![
                 Span::styled(prefix.to_string(), theme::list_row_default_style()),
                 Span::styled(
-                    format!("{:width$}", session.name, width = max_name),
+                    fit_name(&session.name, max_name),
                     theme::list_row_default_style(),
                 ),
                 Span::styled("  ", theme::list_row_default_style()),
@@ -462,9 +481,12 @@ fn render_confirm_delete(
 }
 
 fn render_rename(f: &mut Frame, area: Rect, state: &mut AppState, original: &str, input: &str) {
-    let title = format!(" Rename session '{}' ", original);
-    // Field width: room for the name plus some typing headroom.
-    let field_w = (input.chars().count() as u16 + 12).clamp(24, 60);
+    // Keep the title inside the modal's top border on narrow panes.
+    let title = format!(" Rename session '{}' ", shorten(original, 28));
+    // Field width: room for the name plus typing headroom, up to most
+    // of the window so long names stay on one line.
+    let field_cap = area.width.saturating_sub(14).max(24);
+    let field_w = (input.chars().count() as u16 + 12).clamp(24, field_cap);
     let mut field: Vec<Span> = Vec::new();
     field.push(Span::styled(" ", theme::modal_input_style()));
     field.push(Span::styled(input.to_string(), theme::modal_input_style()));
@@ -774,6 +796,15 @@ fn centered_rect(width: u16, height: u16, area: Rect) -> Rect {
 #[cfg(test)]
 mod tier_tests {
     use super::*;
+
+    #[test]
+    fn fit_name_pads_or_truncates_to_width() {
+        assert_eq!(fit_name("work", 8), "work    ");
+        assert_eq!(fit_name("exactly8", 8), "exactly8");
+        assert_eq!(fit_name("a-rather-long-session-name", 10), "a-rather-…");
+        assert_eq!(fit_name("한글세션이름입니다", 5), "한글세션…");
+        assert_eq!(fit_name("abc", 1), "…");
+    }
 
     #[test]
     fn tier_follows_available_width() {
