@@ -107,11 +107,13 @@ pub fn button_fragment() -> String {
 }
 
 /// The tmux command the button runs: `tu` full-screen in a popup.
+/// Status-bar click: a 60 % popup over the live panes (the same
+/// default `tu` uses when launched from a pane).
 pub fn popup_command(borderless: bool) -> String {
     if borderless {
-        "display-popup -E -B -w 100% -h 100% tu".into()
+        "display-popup -E -B -w 60% -h 60% tu".into()
     } else {
-        "display-popup -E -w 100% -h 100% tu".into()
+        "display-popup -E -w 60% -h 60% tu".into()
     }
 }
 
@@ -424,7 +426,7 @@ set -g status-right-length 60
 set -ag status-right \"#[range=user|tu]#[fg=#1e1e2e,bg=#cba6f7,bold] tu #[norange]#[default]\"
 bind -T root MouseDown1Status \\
   if -F '#{==:#{mouse_status_range},tu}' \\
-    'display-popup -E -B -w 100% -h 100% tu' \\
+    'display-popup -E -B -w 60% -h 60% tu' \\
     'select-window -t ='
 # End of tu
 ";
@@ -438,7 +440,7 @@ bind -T root MouseDown1Status \\
         let lines = ConfItem::StatusButton { borderless: false }.lines();
         assert!(lines
             .iter()
-            .any(|l| l.contains("display-popup -E -w 100% -h 100% tu")));
+            .any(|l| l.contains("display-popup -E -w 60% -h 60% tu")));
         assert!(!lines.iter().any(|l| l.contains(" -B ")));
     }
 

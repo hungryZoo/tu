@@ -246,6 +246,9 @@ pub struct AppState {
     /// The plan behind `update_notice`, for the Update modal.
     pub update_plan: Option<UpdatePlan>,
 
+    /// Percentage of the terminal the window occupies (10..=100).
+    pub window_pct: u8,
+
     pub should_exit: bool,
     pub post_exit_argv: Option<Vec<String>>,
     /// Shell command `main` runs after the TUI exits (the upgrade).
@@ -256,6 +259,7 @@ impl AppState {
     pub fn new(inside_tmux: bool) -> Self {
         Self {
             inside_tmux,
+            window_pct: 100,
             ..Default::default()
         }
     }

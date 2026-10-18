@@ -48,6 +48,21 @@ struct Cli {
     /// command failed.
     #[arg(long)]
     update: bool,
+
+    /// Window size as a percentage of the terminal (10-100). Inside tmux
+    /// this is the popup size, drawn over the live panes; outside tmux
+    /// it is a centred window on a blank screen. TU_SIZE sets the same.
+    #[arg(long, value_name = "PCT")]
+    size: Option<u8>,
+}
+
+const DEFAULT_SIZE: u8 = 60;
+
+fn window_size(cli: &Cli) -> u8 {
+    cli.size
+        .or_else(|| std::env::var("TU_SIZE").ok().and_then(|v| v.parse().ok()))
+        .unwrap_or(DEFAULT_SIZE)
+        .clamp(10, 100)
 }
 
 fn env_no_popup() -> bool {
@@ -98,8 +113,10 @@ fn main() -> ExitCode {
         return ExitCode::from(2);
     }
 
+    let size = window_size(&cli);
+
     if !cli.no_popup && !env_no_popup() && tmux::is_inside_pane() && tmux::supports_popup() {
-        let r = tmux::open_self_in_popup();
+        let r = tmux::open_self_in_popup(size);
         if r.ok() {
             return ExitCode::SUCCESS;
         }
@@ -111,7 +128,11 @@ fn main() -> ExitCode {
         );
     }
 
-    let outcome = match app::run() {
+    // Inside a popup the popup *is* the window, and inline in a pane
+    // (--no-popup) the pane is; only a bare terminal gets the centred
+    // window.
+    let window_pct = if tmux::is_inside_tmux() { 100 } else { size };
+    let outcome = match app::run(window_pct) {
         Ok(o) => o,
         Err(e) => {
             eprintln!("tu: terminal i/o error: {e}");

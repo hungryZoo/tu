@@ -14,7 +14,7 @@ use crate::state::{
 use crate::theme::{self, palette, ButtonVisual};
 
 pub fn render(f: &mut Frame, state: &mut AppState) {
-    let area = f.area();
+    let area = window_area(f.area(), state.window_pct);
 
     // Window — outer border + opaque Base background so the colour
     // story owns the whole frame regardless of the user's terminal
@@ -785,6 +785,19 @@ fn modal_button_visual(state: &AppState, target: HitTarget, focused: bool) -> Bu
     }
 }
 
+/// The part of the terminal `tu` draws in: all of it at 100 %, else a
+/// centred box of that percentage, never smaller than a usable minimum
+/// (and never larger than the terminal).
+pub fn window_area(full: Rect, pct: u8) -> Rect {
+    if pct >= 100 {
+        return full;
+    }
+    let pct = pct.max(10) as u32;
+    let w = ((full.width as u32 * pct).div_ceil(100)) as u16;
+    let h = ((full.height as u32 * pct).div_ceil(100)) as u16;
+    centered_rect(w.max(40), h.max(12), full)
+}
+
 fn centered_rect(width: u16, height: u16, area: Rect) -> Rect {
     let w = width.min(area.width);
     let h = height.min(area.height);
@@ -796,6 +809,20 @@ fn centered_rect(width: u16, height: u16, area: Rect) -> Rect {
 #[cfg(test)]
 mod tier_tests {
     use super::*;
+
+    #[test]
+    fn window_area_scales_and_clamps() {
+        let full = Rect::new(0, 0, 200, 50);
+        assert_eq!(window_area(full, 100), full);
+        let w = window_area(full, 60);
+        assert_eq!((w.width, w.height), (120, 30));
+        assert_eq!((w.x, w.y), (40, 10));
+        let small = Rect::new(0, 0, 50, 15);
+        let w = window_area(small, 60);
+        assert_eq!((w.width, w.height), (40, 12));
+        let tiny = Rect::new(0, 0, 30, 8);
+        assert_eq!(window_area(tiny, 60), tiny);
+    }
 
     #[test]
     fn fit_name_pads_or_truncates_to_width() {
