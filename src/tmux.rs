@@ -2,6 +2,7 @@
 
 use std::collections::HashSet;
 use std::env;
+use std::path::Path;
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -224,25 +225,10 @@ pub fn set_option(name: &str, value: &str) -> TmuxResult {
     run(&["set-option", "-g", name, value])
 }
 
-/// ``tmux set-option -ga <name> <value>`` — append to a string option.
-pub fn append_option(name: &str, value: &str) -> TmuxResult {
-    run(&["set-option", "-ga", name, value])
-}
-
-/// Bind a left click on the status line in the root table:
-/// ``bind -T root MouseDown1Status if -F <cond> <then> <else>``.
-pub fn bind_root_mouse_status(condition: &str, then: &str, otherwise: &str) -> TmuxResult {
-    run(&[
-        "bind-key",
-        "-T",
-        "root",
-        "MouseDown1Status",
-        "if-shell",
-        "-F",
-        condition,
-        then,
-        otherwise,
-    ])
+/// ``tmux source-file <path>`` against the running server.
+pub fn source_file(path: &Path) -> TmuxResult {
+    let p = path.to_string_lossy();
+    run(&["source-file", &p])
 }
 
 // ----------------------------------------------------- naming

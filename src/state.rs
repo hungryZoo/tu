@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 
 use ratatui::layout::{Position, Rect};
 
-use crate::conf_setup::ConfItem;
+use crate::conf_setup::ConfAction;
 use crate::models::Session;
 use crate::update::UpdatePlan;
 
@@ -169,7 +169,8 @@ pub enum Screen {
         plan: UpdatePlan,
     },
     ConfSetup {
-        items: Vec<ConfItem>,
+        action: ConfAction,
+        lines: Vec<String>,
         focus: ConfFocus,
     },
     /// Single-button acknowledge dialog shown after a successful

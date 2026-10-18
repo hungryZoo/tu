@@ -23,7 +23,7 @@ use crossterm::terminal::{
 use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
 
-use crate::conf_setup::{self, ConfItem};
+use crate::conf_setup::{self, ConfAction};
 use crate::state::{AppState, ButtonId, ConfFocus, DeleteFocus, Focus, HitTarget, Screen};
 use crate::tmux;
 use crate::update;
@@ -54,14 +54,7 @@ pub fn run(window_pct: u8) -> io::Result<AppOutcome> {
     state.update_notice = state.update_plan.as_ref().map(|p| p.notice());
     update::maybe_spawn_check();
 
-    let missing =
-        conf_setup::missing_items(&conf_setup::conf_path(), conf_setup::detect_popup_support());
-    if !missing.is_empty() {
-        state.screen = Screen::ConfSetup {
-            items: missing,
-            focus: ConfFocus::default(),
-        };
-    }
+    sync_tmux_conf(&mut state);
 
     let result = event_loop(&mut terminal, &mut state);
 
@@ -573,37 +566,74 @@ fn dismiss_modal(state: &mut AppState) {
     state.screen = Screen::Main;
 }
 
+/// Launch-time tmux config check. Silent when only our own file needs
+/// rewriting; a modal when `~/.tmux.conf` itself would change.
+fn sync_tmux_conf(state: &mut AppState) {
+    let user = conf_setup::user_conf_path();
+    let managed = conf_setup::managed_conf_path();
+    let popup = conf_setup::detect_popup_support();
+    match conf_setup::plan(&user, &managed, popup) {
+        ConfAction::UpToDate => {}
+        ConfAction::Refresh => match conf_setup::write_managed(&managed, popup) {
+            Ok(()) => {
+                let live = conf_setup::apply_live(&managed);
+                state.set_info(if live {
+                    format!("tmux config refreshed (v{}).", conf_setup::MANAGED_VERSION)
+                } else {
+                    format!(
+                        "tmux config refreshed (v{}); applies when tmux restarts.",
+                        conf_setup::MANAGED_VERSION
+                    )
+                });
+            }
+            Err(e) => state.set_error(format!("Could not write {}: {e}", managed.display())),
+        },
+        action @ (ConfAction::Install | ConfAction::Migrate) => {
+            let lines = conf_setup::describe(&action, &user, &managed);
+            state.screen = Screen::ConfSetup {
+                action,
+                lines,
+                focus: ConfFocus::default(),
+            };
+        }
+    }
+}
+
 fn apply_conf_modal(state: &mut AppState) {
-    // Grab the directives we need from the modal state before we
-    // tear it down.
-    let items: Vec<ConfItem> = match &state.screen {
-        Screen::ConfSetup { items, .. } => items.clone(),
+    let action = match &state.screen {
+        Screen::ConfSetup { action, .. } => action.clone(),
         _ => return,
     };
-    let conf = conf_setup::conf_path();
-    match conf_setup::append_items(&items, &conf) {
+    let user = conf_setup::user_conf_path();
+    let managed = conf_setup::managed_conf_path();
+    let popup = conf_setup::detect_popup_support();
+    let result = conf_setup::write_managed(&managed, popup).and_then(|()| match action {
+        ConfAction::Migrate => conf_setup::migrate_legacy(&user, &managed),
+        _ => conf_setup::install_include(&user, &managed),
+    });
+    match result {
         Ok(()) => {
-            let applied = conf_setup::apply_items_to_server(&items);
-            let names: Vec<String> = items.iter().map(ConfItem::name).collect();
-            let server_line = if applied {
-                "We also pushed the new options to the running tmux server."
+            let live = conf_setup::apply_live(&managed);
+            let server_line = if live {
+                "The running tmux server has the new settings already."
             } else {
-                "They will take effect the next time tmux starts."
+                "They take effect the next time tmux starts."
+            };
+            let what = match action {
+                ConfAction::Migrate => {
+                    "Replaced the old tu block in ~/.tmux.conf with one\nsource-file line"
+                }
+                _ => "Added one source-file line to ~/.tmux.conf",
             };
             let message = format!(
-                "Patched ~/.tmux.conf with {}.\n\n{}\n\ntu needs a fresh start so it picks up the\nnew defaults.",
-                names.join(", "),
-                server_line
+                "{what} and wrote {}.\n\n{server_line}\n\ntu needs a fresh start so it picks up the\nnew defaults.",
+                managed.display()
             );
-            state.set_info(format!(
-                "Appended {} to {}.",
-                names.join(", "),
-                conf.display()
-            ));
+            state.set_info("tmux config installed.");
             state.screen = Screen::RestartNotice { message };
         }
         Err(e) => {
-            state.set_error(format!("Failed to update ~/.tmux.conf: {e}"));
+            state.set_error(format!("Failed to update tmux config: {e}"));
             state.screen = Screen::Main;
         }
     }

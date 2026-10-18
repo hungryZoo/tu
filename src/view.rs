@@ -65,10 +65,7 @@ pub fn render(f: &mut Frame, state: &mut AppState) {
             Some(ModalSnapshot::Rename(original.clone(), input.clone()))
         }
         Screen::Update { plan } => Some(ModalSnapshot::Update(plan.clone())),
-        Screen::ConfSetup { items, focus } => {
-            let lines: Vec<String> = items.iter().flat_map(|i| i.lines()).collect();
-            Some(ModalSnapshot::Conf(lines, *focus))
-        }
+        Screen::ConfSetup { lines, focus, .. } => Some(ModalSnapshot::Conf(lines.clone(), *focus)),
         Screen::RestartNotice { message } => Some(ModalSnapshot::Notice(message.clone())),
     };
 
@@ -606,11 +603,11 @@ fn render_conf_setup(
     directive_lines: &[String],
     focus: ConfFocus,
 ) {
-    let title = " ~/.tmux.conf ".to_string();
+    let title = " tmux config ".to_string();
     let mut body = vec![
         Line::from(""),
         Line::from(Span::styled(
-            "Add the following to your ~/.tmux.conf?",
+            "Let tu manage its tmux settings?",
             theme::modal_body_style(),
         )),
         Line::from(""),
@@ -626,7 +623,7 @@ fn render_conf_setup(
     }
     body.push(Line::from(""));
     body.push(Line::from(Span::styled(
-        "We'll patch the live tmux server too.",
+        "Applied to the running tmux server too. Your other settings are untouched.",
         theme::modal_subtle_style(),
     )));
 
