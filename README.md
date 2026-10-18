@@ -475,9 +475,15 @@ bind-key -n F12 display-popup -E -B -w 100% -h 100% "tu"
 
 ### Update check
 
-`tu` keeps a tiny file at `~/.cache/tu/update-check` (or
-`$XDG_CACHE_HOME/tu/update-check`) with the time of the last check
-and the newest tag it saw. On launch:
+`tu` keeps a tiny file with the time of the last check and the
+newest tag it saw:
+
+| Platform | Cache file                                                    |
+| -------- | ------------------------------------------------------------- |
+| Linux    | `~/.cache/tu/update-check` (`$XDG_CACHE_HOME/tu/update-check` if set) |
+| macOS    | `~/Library/Caches/tu/update-check`                            |
+
+On launch:
 
 1. If the file is less than 24 hours old, nothing happens.
 2. Otherwise the timestamp is written first, then a background
