@@ -159,17 +159,17 @@ pub fn title_brand_style() -> Style {
         .add_modifier(Modifier::BOLD)
 }
 
-pub fn title_separator_style() -> Style {
-    Style::default().fg(palette::OVERLAY0).bg(palette::BASE)
-}
-
-pub fn title_mode_style(inside_tmux: bool) -> Style {
-    let fg = if inside_tmux {
-        palette::LAVENDER
-    } else {
-        palette::PEACH
+/// Top-right close chip: a filled block like the brand chip, so it
+/// reads as a button even without a border.
+pub fn close_chip_style(visual: ButtonVisual) -> Style {
+    let (fg, bg) = match visual {
+        ButtonVisual::Idle => (palette::RED, palette::SURFACE1),
+        ButtonVisual::Hover => (palette::RED, palette::SURFACE2),
+        ButtonVisual::Focus => (palette::CRUST, palette::MAROON),
+        ButtonVisual::Pressed => (palette::CRUST, palette::RED),
+        ButtonVisual::Disabled => (palette::OVERLAY0, palette::SURFACE0),
     };
-    Style::default().fg(fg).bg(palette::BASE)
+    Style::default().fg(fg).bg(bg).add_modifier(Modifier::BOLD)
 }
 
 // ----------------------------------------------------- section labels

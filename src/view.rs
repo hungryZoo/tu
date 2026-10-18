@@ -23,7 +23,7 @@ pub fn render(f: &mut Frame, state: &mut AppState) {
         .borders(Borders::ALL)
         .border_style(theme::outer_border_style(state.inside_tmux))
         .style(theme::window_bg())
-        .title(build_window_title(state.inside_tmux))
+        .title(build_window_title())
         .title_top(close_chip(state).right_aligned());
     let inner = outer.inner(area);
     f.render_widget(outer, area);
@@ -104,29 +104,18 @@ enum ModalSnapshot {
 
 // -------------------------------------------------------- window title
 
-fn build_window_title(inside_tmux: bool) -> Line<'static> {
-    let mode = if inside_tmux {
-        "inside tmux"
-    } else {
-        "outside tmux"
-    };
-    Line::from(vec![
-        Span::styled(" tu ", theme::title_brand_style()),
-        Span::styled(" · ", theme::title_separator_style()),
-        Span::styled(format!("{mode} "), theme::title_mode_style(inside_tmux)),
-    ])
+fn build_window_title() -> Line<'static> {
+    Line::from(Span::styled(" tu ", theme::title_brand_style()))
 }
 
-/// The close "button": a small chip in the top border. Red `x` at
-/// rest, filled when hovered or focused, inverted while pressed.
+/// The close "button": a filled chip in the top border, mirroring the
+/// ` tu ` brand chip on the left. Grey block with a red `x` at rest,
+/// lighter when hovered / focused, solid red while pressed.
 const CLOSE_CHIP: &str = " x ";
 
 fn close_chip(state: &AppState) -> Line<'static> {
     let visual = button_visual(state, ButtonId::Close);
-    Line::from(Span::styled(
-        CLOSE_CHIP,
-        theme::bare_button_style(palette::RED, visual),
-    ))
+    Line::from(Span::styled(CLOSE_CHIP, theme::close_chip_style(visual)))
 }
 
 // -------------------------------------------------------- section
