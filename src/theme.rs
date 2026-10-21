@@ -243,7 +243,7 @@ pub fn list_empty_style() -> Style {
 
 // ----------------------------------------------------- hint + status
 
-/// Narrowest tier: no border, just the key. It takes the colour the
+/// Key-only label tier: no border, just the key. It takes the colour the
 /// border would have had, and the same fill as a boxed button so a
 /// hovered / focused key still shows as a grey block (accent when
 /// pressed, muted when disabled).

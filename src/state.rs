@@ -91,7 +91,7 @@ impl ButtonId {
         }
     }
 
-    /// Just the key, for the two narrowest tiers (32 / 22 cells).
+    /// Just the key: the key-box and key-only label tiers.
     pub fn key_only(self) -> &'static str {
         match self {
             ButtonId::Attach => "A",
@@ -103,7 +103,7 @@ impl ButtonId {
         }
     }
 
-    /// Plain text of the word tier, for tests.
+    /// Plain text of the word label tier (width math and tests).
     pub fn label(self) -> String {
         let (a, k, b) = self.word_parts();
         format!("{a}{k}{b}")
@@ -247,8 +247,14 @@ pub struct AppState {
     /// The plan behind `update_notice`, for the Update modal.
     pub update_plan: Option<UpdatePlan>,
 
-    /// Percentage of the terminal the window occupies (10..=100).
+    /// Requested window size, percent of the terminal (10..=100). Below
+    /// 100 the layout is re-planned every frame (outside tmux only).
     pub window_pct: u8,
+    /// Richest button label allowed when `window_pct` is 100. Inside a
+    /// tmux popup it comes from the client size at startup, so a popup
+    /// that fell back to full screen uses word labels like a bare
+    /// terminal of the same size would.
+    pub label_cap: crate::view::LabelTier,
 
     pub should_exit: bool,
     pub post_exit_argv: Option<Vec<String>>,
@@ -261,6 +267,7 @@ impl AppState {
         Self {
             inside_tmux,
             window_pct: 100,
+            label_cap: crate::view::LabelTier::Full,
             ..Default::default()
         }
     }

@@ -59,12 +59,16 @@ https://github.com/user-attachments/assets/5b21f9cb-f9f2-415b-bd92-b067b938dbf6
    - [From the parent shell](#from-the-parent-shell)
    - [From a tmux pane](#from-a-tmux-pane)
    - [From the status bar](#from-the-status-bar)
+   - [Renaming a session](#renaming-a-session)
    - [Deleting a session](#deleting-a-session)
+   - [The button row](#the-button-row)
+   - [Window mode and button labels](#window-mode-and-button-labels)
    - [Keyboard & mouse reference](#keyboard--mouse-reference)
 5. [Configuration](#5-configuration)
-   - [The `~/.tmux.conf` baseline](#the-tmuxconf-baseline)
+   - [tmux config: one include line, one managed file](#tmux-config-one-include-line-one-managed-file)
    - [Hotkey binding](#hotkey-binding)
    - [Environment variables & flags](#environment-variables--flags)
+   - [Update check](#update-check)
 6. [Platform support](#6-platform-support)
    - [Release targets](#release-targets)
    - [Raspberry Pi cheat sheet](#raspberry-pi-cheat-sheet)
@@ -357,27 +361,54 @@ Five buttons in one row — **Attach · New · Rename · Delete · Detach**
 session, attach"; ↑/↓ always put focus back on Attach. **Tab**,
 **Shift+Tab**, ← and → walk the row and the `x`.
 
-The row picks the widest form that fits and the shortcut key is
-always in yellow:
+### Window mode and button labels
 
-| Available width | Form                                   |
-| --------------- | -------------------------------------- |
-| ≥ 74 cells      | `Attach (a)` … `Detach (d)`            |
-| ≥ 56 cells      | `Attach` … `Delete Bksp` … (initial highlighted) |
-| ≥ 32 cells      | bordered keys only: `A` `N` `R` `Bksp` `D` |
-| narrower        | bare keys in the button's own colour; focus and hover still fill the cell |
+What you see is decided on two axes. Each has fixed names, used the
+same way in the code (`WindowMode`, `LabelTier`), here and in the
+release notes.
 
-An 80-column pane (76 usable cells) gets the full form.
+**Window mode** — how much of the terminal the window takes:
 
-**Small terminals use all of it.** The reduced (60 %) window is only
-used when it still fits the word-form buttons and four list rows —
-a terminal of at least 99 × 22. Anything smaller (an editor's
-terminal panel, an 80 × 24 window) gets the whole screen, and the
-row then steps down through the forms above as usual. The same rule
-applies outside tmux (re-checked on every resize), when `tu` is
-launched from a pane (checked against the tmux client before the
-popup opens), and to the status-bar button (written into the managed
-tmux file as a `#{client_width}` / `#{client_height}` condition).
+| Name           | Code                  | What                                                         |
+| -------------- | --------------------- | ------------------------------------------------------------ |
+| reduced window | `WindowMode::Reduced` | the requested size (`--size`, default 60 %), centred; a popup over the live panes inside tmux |
+| full window    | `WindowMode::Full`    | the whole terminal or tmux client                            |
+
+**Button labels** — what is written inside each button (the shortcut
+is always yellow):
+
+| Name     | Code                 | Looks like                   | Row width |
+| -------- | -------------------- | ---------------------------- | --------- |
+| full     | `LabelTier::Full`    | `Attach (a)` … `Detach (d)`  | 74 cells  |
+| word     | `LabelTier::Word`    | `Attach` … `Delete Bksp` (initial highlighted) | 56 cells |
+| key box  | `LabelTier::KeyBox`  | bordered `A` `N` `R` `Bksp` `D` | 32 cells |
+| key only | `LabelTier::KeyOnly` | bare keys in each button's colour; focus and hover still fill the cell | 22 cells |
+
+**Stages at the default size.** As the terminal shrinks, tu walks
+down these five stages, and labels only ever get shorter:
+
+| Stage | Terminal                     | Window mode    | Labels   |
+| ----- | ---------------------------- | -------------- | -------- |
+| 1     | ≥ 129 columns, ≥ 22 rows     | reduced window | full     |
+| 2     | 99-128 columns, ≥ 22 rows    | reduced window | word     |
+| 3     | 60-98 columns (or < 22 rows) | full window    | word     |
+| 4     | 36-59 columns                | full window    | key box  |
+| 5     | ≤ 35 columns                 | full window    | key only |
+
+The reduced window is kept only while it fits word labels and four
+list rows. When tu has to fall back to the full window, labels stay
+at word or shorter, so an 80-column editor panel shows `Attach`, the
+same as a 120-column terminal, not `Attach (a)`. (A wide but short
+terminal, e.g. 200 × 20, is the exception: the width alone would have
+fitted full labels, so it keeps them.) Asking for `--size 100`
+explicitly lifts the cap: an 80-column terminal then shows full
+labels.
+
+The same rule runs in three places: outside tmux on every frame (so
+resizing switches live), when `tu` is launched from a pane (checked
+against the tmux client before the popup opens), and in the
+status-bar binding (written into the managed tmux file as a
+`#{client_width}` / `#{client_height}` condition).
 
 ### Keyboard & mouse reference
 
@@ -489,7 +520,7 @@ bind-key -n F12 display-popup -E -B -w 100% -h 100% "tu"
 | `TU_NO_UPDATE_CHECK=1` | never check GitHub for a newer release, never show the note |
 | `--check-update`  | check GitHub right now, print the result, exit (0 up to date, 10 update available, 11 unreachable) |
 | `--update`        | check now and, if newer, upgrade in place with the detected install method (0 done or up to date, 1 upgrade failed, 11 unreachable) |
-| `--size PCT` / `TU_SIZE` | window size, 10-100 (default 60): the tmux popup size, or a centred window outside tmux. 100 = full screen. On a small terminal tu uses the whole of it anyway (see *The button row*) |
+| `--size PCT` / `TU_SIZE` | window size, 10-100 (default 60): the tmux popup size, or a centred window outside tmux. 100 = full screen. On a small terminal tu uses the full window anyway (see *Window mode and button labels*) |
 | `--version`       | print the version and exit                              |
 | `--help`          | list every flag                                         |
 

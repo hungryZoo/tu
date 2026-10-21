@@ -117,9 +117,9 @@ fn main() -> ExitCode {
         // A popup's size is fixed when it opens, so decide now: on a
         // small client (e.g. an editor's terminal panel) use all of it.
         let popup_pct = tmux::client_size()
-            .map(|(w, h)| view::effective_pct(w, h, size))
+            .map(|(w, h)| view::popup_pct(w, h, size))
             .unwrap_or(size);
-        let r = tmux::open_self_in_popup(popup_pct);
+        let r = tmux::open_self_in_popup(popup_pct, size);
         if r.ok() {
             return ExitCode::SUCCESS;
         }
@@ -133,9 +133,20 @@ fn main() -> ExitCode {
 
     // Inside a popup the popup *is* the window, and inline in a pane
     // (--no-popup) the pane is; only a bare terminal gets the centred
-    // window.
-    let window_pct = if tmux::is_inside_tmux() { 100 } else { size };
-    let outcome = match app::run(window_pct) {
+    // window. A popup still needs the label cap its size implies: plan
+    // it from the client with the requested size, exactly as the pane
+    // instance (or the status-bar binding) did when opening it.
+    let (window_pct, label_cap) = if tmux::is_inside_pane() {
+        (100, view::LabelTier::Full)
+    } else if tmux::is_inside_tmux() {
+        let cap = tmux::client_size()
+            .map(|(w, h)| view::plan_layout(w, h, size).label_cap)
+            .unwrap_or(view::LabelTier::Full);
+        (100, cap)
+    } else {
+        (size, view::LabelTier::Full)
+    };
+    let outcome = match app::run(window_pct, label_cap) {
         Ok(o) => o,
         Err(e) => {
             eprintln!("tu: terminal i/o error: {e}");

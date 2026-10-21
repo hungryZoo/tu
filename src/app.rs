@@ -39,16 +39,17 @@ pub struct AppOutcome {
     pub post_exit_command: Option<String>,
 }
 
-/// `window_pct`: how much of the terminal `tu` draws in; 100 = all of
-/// it. Inside a tmux popup the popup already is the window, so the
-/// caller passes 100 there; on a bare terminal a smaller value draws
-/// a centred window on the alternate screen.
-pub fn run(window_pct: u8) -> io::Result<AppOutcome> {
+/// `window_pct`: requested window size; 100 = the whole terminal.
+/// Inside tmux the popup (or pane) already is the window, so the caller
+/// passes 100 and a `label_cap` planned from the client size; on a bare
+/// terminal a smaller value is re-planned every frame.
+pub fn run(window_pct: u8, label_cap: crate::view::LabelTier) -> io::Result<AppOutcome> {
     let inside_tmux = tmux::is_inside_tmux();
     let mut terminal = setup_terminal()?;
 
     let mut state = AppState::new(inside_tmux);
     state.window_pct = window_pct.clamp(10, 100);
+    state.label_cap = label_cap;
     state.set_sessions(tmux::list_sessions());
     state.update_plan = update::plan();
     state.update_notice = state.update_plan.as_ref().map(|p| p.notice());

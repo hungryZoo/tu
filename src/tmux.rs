@@ -123,27 +123,33 @@ pub fn supports_borderless_popup() -> bool {
 /// Build the ``display-popup`` argv that re-launches *exe* full-screen
 /// over the current client. The popup closes when the command exits
 /// (`-E`); the border is dropped when the server is new enough.
-pub fn popup_argv(exe: &str, borderless: bool, size_pct: u8) -> Vec<String> {
+/// `popup_pct` sizes the popup; `requested_pct` is what the user asked
+/// for, handed down as TU_SIZE so the child plans its button labels
+/// with the same rule (a popup that fell back to 100 % on a small
+/// client keeps word labels).
+pub fn popup_argv(exe: &str, borderless: bool, popup_pct: u8, requested_pct: u8) -> Vec<String> {
     let mut argv: Vec<String> = vec!["display-popup".into(), "-E".into()];
     if borderless {
         argv.push("-B".into());
     }
-    let dim = format!("{}%", size_pct.clamp(10, 100));
+    let dim = format!("{}%", popup_pct.clamp(10, 100));
     argv.extend(["-w", &dim, "-h", &dim].iter().map(|s| s.to_string()));
-    // Hand the size down so the child knows it is already in a
-    // right-sized popup and must not shrink its drawing area again.
-    argv.push(format!("env TU_SIZE={} {}", size_pct, shell_quote(exe)));
+    argv.push(format!(
+        "env TU_SIZE={} {}",
+        requested_pct,
+        shell_quote(exe)
+    ));
     argv
 }
 
 /// Re-exec ourselves inside a full-screen tmux popup. Returns the
 /// tmux result; the popup itself runs asynchronously on the server,
 /// so this call comes back as soon as tmux has accepted the request.
-pub fn open_self_in_popup(size_pct: u8) -> TmuxResult {
+pub fn open_self_in_popup(popup_pct: u8, requested_pct: u8) -> TmuxResult {
     let exe = env::current_exe()
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or_else(|_| "tu".to_string());
-    let argv = popup_argv(&exe, supports_borderless_popup(), size_pct);
+    let argv = popup_argv(&exe, supports_borderless_popup(), popup_pct, requested_pct);
     let refs: Vec<&str> = argv.iter().map(String::as_str).collect();
     run(&refs)
 }
@@ -360,7 +366,7 @@ mod tests {
     #[test]
     fn popup_argv_sizes_the_popup_and_closes_on_exit() {
         assert_eq!(
-            popup_argv("/usr/bin/tu", true, 100),
+            popup_argv("/usr/bin/tu", true, 100, 60),
             vec![
                 "display-popup",
                 "-E",
@@ -369,11 +375,11 @@ mod tests {
                 "100%",
                 "-h",
                 "100%",
-                "env TU_SIZE=100 '/usr/bin/tu'"
+                "env TU_SIZE=60 '/usr/bin/tu'"
             ]
         );
         assert_eq!(
-            popup_argv("/usr/bin/tu", false, 60),
+            popup_argv("/usr/bin/tu", false, 60, 60),
             vec![
                 "display-popup",
                 "-E",
@@ -388,9 +394,9 @@ mod tests {
 
     #[test]
     fn popup_argv_quotes_paths_with_spaces() {
-        let argv = popup_argv("/Users/me/my bin/tu", false, 60);
+        let argv = popup_argv("/Users/me/my bin/tu", false, 60, 60);
         assert!(argv.last().unwrap().ends_with("'/Users/me/my bin/tu'"));
-        let argv = popup_argv("/it's/tu", false, 60);
+        let argv = popup_argv("/it's/tu", false, 60, 60);
         assert!(argv.last().unwrap().ends_with("'/it'\\''s/tu'"));
     }
 }

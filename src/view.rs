@@ -15,7 +15,20 @@ use crate::state::{
 use crate::theme::{self, palette, ButtonVisual};
 
 pub fn render(f: &mut Frame, state: &mut AppState) {
-    let area = window_area(f.area(), state.window_pct);
+    // Outside tmux the layout is re-planned every frame, so resizing the
+    // terminal switches modes live. Inside a tmux popup the popup *is*
+    // the window (window_pct = 100) and the label cap was fixed at
+    // startup from the client size.
+    let full = f.area();
+    let (area, label_cap) = if state.window_pct < 100 {
+        let layout = plan_layout(full.width, full.height, state.window_pct);
+        (
+            window_rect(full, layout, state.window_pct),
+            layout.label_cap,
+        )
+    } else {
+        (full, state.label_cap)
+    };
 
     // Window — outer border + opaque Base background so the colour
     // story owns the whole frame regardless of the user's terminal
@@ -54,7 +67,7 @@ pub fn render(f: &mut Frame, state: &mut AppState) {
 
     render_section_label(f, chunks[0]);
     render_session_list(f, chunks[1], state);
-    render_buttons(f, chunks[3], state);
+    render_buttons(f, chunks[3], state, label_cap);
     render_status(f, chunks[4], state);
 
     // Snapshot modal data before passing `&mut state` to render
@@ -262,63 +275,70 @@ fn render_session_list(f: &mut Frame, area: Rect, state: &mut AppState) {
 
 // --------------------------------------------------------- buttons
 
-/// How much of each button we can afford at the current width.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ButtonTier {
-    /// `New (n)` — key inside parentheses, highlighted.
+/// Button label axis: what is written inside each button. Ordered
+/// richest first, so `max` picks the plainer of two tiers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
+pub enum LabelTier {
+    #[default]
+    /// 전체 라벨 — `Attach (a)`, key in parentheses, highlighted.
     Full,
-    /// `New` with its initial highlighted; `Delete Bksp`.
+    /// 단어 라벨 — `Attach` with its initial highlighted; `Delete Bksp`.
     Word,
-    /// Bordered box holding only the key: `N`, `Esc`.
-    KeyBoxed,
-    /// No border; the key alone in the button's accent colour.
-    KeyBare,
+    /// 키 버튼 — bordered box holding only the key: `A`, `Bksp`.
+    KeyBox,
+    /// 키 문자 — no border; the key alone in the button's accent colour.
+    KeyOnly,
 }
+
+const ALL_LABEL_TIERS: [LabelTier; 4] = [
+    LabelTier::Full,
+    LabelTier::Word,
+    LabelTier::KeyBox,
+    LabelTier::KeyOnly,
+];
 
 const BUTTON_SPACER: u16 = 1;
 
-/// Cell widths of the six buttons at a tier (borders / padding included).
-fn tier_widths(tier: ButtonTier) -> Vec<u16> {
+/// Cell widths of the row's buttons at a label tier (border and
+/// padding included).
+fn label_widths(tier: LabelTier) -> Vec<u16> {
     BUTTON_ORDER
         .iter()
         .map(|b| {
             let text = match tier {
-                ButtonTier::Full => {
+                LabelTier::Full => {
                     let (a, k, c) = b.full_parts();
                     a.chars().count() + k.chars().count() + c.chars().count()
                 }
-                ButtonTier::Word => b.label().chars().count(),
-                ButtonTier::KeyBoxed | ButtonTier::KeyBare => b.key_only().chars().count(),
+                LabelTier::Word => b.label().chars().count(),
+                LabelTier::KeyBox | LabelTier::KeyOnly => b.key_only().chars().count(),
             } as u16;
             match tier {
-                ButtonTier::KeyBare => text + 2, // one space each side, no border
-                _ => text + 4,                   // border + one space each side
+                LabelTier::KeyOnly => text + 2, // one space each side, no border
+                _ => text + 4,                  // border + one space each side
             }
         })
         .collect()
 }
 
-fn tier_total(tier: ButtonTier) -> u16 {
-    tier_widths(tier).iter().sum::<u16>() + BUTTON_SPACER * (BUTTON_ORDER.len() as u16 - 1)
+/// Width of the whole button row at a label tier.
+pub fn label_row_width(tier: LabelTier) -> u16 {
+    label_widths(tier).iter().sum::<u16>() + BUTTON_SPACER * (BUTTON_ORDER.len() as u16 - 1)
 }
 
-/// Widest tier that fits; KeyBare when nothing does.
-pub fn button_tier(width: u16) -> ButtonTier {
-    [
-        ButtonTier::Full,
-        ButtonTier::Word,
-        ButtonTier::KeyBoxed,
-        ButtonTier::KeyBare,
-    ]
-    .into_iter()
-    .find(|t| tier_total(*t) <= width)
-    .unwrap_or(ButtonTier::KeyBare)
+/// Richest label tier that fits `width`, but never richer than `cap`.
+pub fn label_tier(width: u16, cap: LabelTier) -> LabelTier {
+    ALL_LABEL_TIERS
+        .into_iter()
+        .filter(|t| *t >= cap)
+        .find(|t| label_row_width(*t) <= width)
+        .unwrap_or(LabelTier::KeyOnly)
 }
 
-fn render_buttons(f: &mut Frame, area: Rect, state: &mut AppState) {
-    let tier = button_tier(area.width);
-    let widths = tier_widths(tier);
-    let total = tier_total(tier);
+fn render_buttons(f: &mut Frame, area: Rect, state: &mut AppState, cap: LabelTier) {
+    let tier = label_tier(area.width, cap);
+    let widths = label_widths(tier);
+    let total = label_row_width(tier);
     let start_x = if total <= area.width {
         area.x + (area.width - total) / 2
     } else {
@@ -336,10 +356,10 @@ fn render_buttons(f: &mut Frame, area: Rect, state: &mut AppState) {
         let style = theme::button_style(button.accent(), visual);
         let key_style = theme::button_key_style(style.label);
         match tier {
-            ButtonTier::Full | ButtonTier::Word => {
+            LabelTier::Full | LabelTier::Word => {
                 let rect = Rect::new(x, area.y, w, area.height);
                 state.geom.buttons[i] = Some(rect);
-                let (before, key, after) = if tier == ButtonTier::Full {
+                let (before, key, after) = if tier == LabelTier::Full {
                     button.full_parts()
                 } else {
                     button.word_parts()
@@ -351,13 +371,13 @@ fn render_buttons(f: &mut Frame, area: Rect, state: &mut AppState) {
                 ]);
                 render_button_frame(f, rect, line, &style);
             }
-            ButtonTier::KeyBoxed => {
+            LabelTier::KeyBox => {
                 let rect = Rect::new(x, area.y, w, area.height);
                 state.geom.buttons[i] = Some(rect);
                 let line = Line::from(Span::styled(button.key_only(), key_style));
                 render_button_frame(f, rect, line, &style);
             }
-            ButtonTier::KeyBare => {
+            LabelTier::KeyOnly => {
                 // One row, vertically centred in the 3-row button band.
                 // The key wears the accent the border would have had;
                 // hover / focus / pressed keep their fill so the cursor
@@ -807,35 +827,82 @@ pub const DEFAULT_WINDOW_PCT: u8 = 60;
 /// showing four sessions, spacer, button row, status row.
 pub const MIN_WINDOW_HEIGHT: u16 = 14;
 
-/// Smallest window width worth shrinking to: the button row still in
-/// its word form (`Attach`, `New`, …) plus the outer border and margin.
-/// Below this a reduced window would drop to bare keys, so it is
-/// better to use the whole terminal instead.
+/// Window border plus body margin, left and right.
+const WINDOW_CHROME_W: u16 = 4;
+
+/// Window mode axis: how much of the terminal the window takes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WindowMode {
+    /// 축소 창 — the requested percentage, centred (a popup in tmux).
+    Reduced,
+    /// 전체 창 — the whole terminal / tmux client.
+    Full,
+}
+
+/// Window mode plus the richest label tier allowed in it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ScreenPlan {
+    pub window: WindowMode,
+    pub label_cap: LabelTier,
+}
+
+/// Smallest window width worth shrinking to: the button row in word
+/// labels plus border and margin. Narrower than this, a reduced window
+/// would show only keys, so the whole terminal is used instead.
 pub fn min_window_width() -> u16 {
-    tier_total(ButtonTier::Word) + 4
+    label_row_width(LabelTier::Word) + WINDOW_CHROME_W
 }
 
 fn scaled(len: u16, pct: u8) -> u16 {
     ((len as u32 * pct as u32).div_ceil(100)) as u16
 }
 
-/// The size actually used: `pct` when the reduced window keeps the
-/// word-form buttons and four list rows, otherwise 100. Inside 100 %
-/// the button row then degrades through its own tiers as usual.
-pub fn effective_pct(full_w: u16, full_h: u16, pct: u8) -> u8 {
+/// Decide the layout for a terminal of `w` x `h` and a requested size.
+///
+/// * `pct` = 100 (the user asked for full screen): full window, any label.
+/// * the reduced window keeps word labels and four list rows: reduced.
+/// * otherwise: full window, but labels capped at word labels unless the
+///   reduced window would have fitted full labels. Without the cap a
+///   terminal that just stopped fitting the reduced window would show
+///   *longer* labels than a bigger one (`Attach (a)` at 98 columns,
+///   `Attach` at 120); with it, labels only ever shrink as the terminal
+///   does.
+pub fn plan_layout(w: u16, h: u16, pct: u8) -> ScreenPlan {
     let pct = pct.clamp(10, 100);
     if pct == 100 {
-        return 100;
+        return ScreenPlan {
+            window: WindowMode::Full,
+            label_cap: LabelTier::Full,
+        };
     }
-    if scaled(full_w, pct) < min_window_width() || scaled(full_h, pct) < MIN_WINDOW_HEIGHT {
-        100
-    } else {
-        pct
+    let (rw, rh) = (scaled(w, pct), scaled(h, pct));
+    if rw >= min_window_width() && rh >= MIN_WINDOW_HEIGHT {
+        return ScreenPlan {
+            window: WindowMode::Reduced,
+            label_cap: LabelTier::Full,
+        };
+    }
+    let reduced_fits_full = rw >= label_row_width(LabelTier::Full) + WINDOW_CHROME_W;
+    ScreenPlan {
+        window: WindowMode::Full,
+        label_cap: if reduced_fits_full {
+            LabelTier::Full
+        } else {
+            LabelTier::Word
+        },
     }
 }
 
-/// Smallest terminal (or tmux client) size at which `pct` is kept;
-/// used to write the same rule into the tmux status-bar binding.
+/// The percentage to open a tmux popup at for this client.
+pub fn popup_pct(w: u16, h: u16, pct: u8) -> u8 {
+    match plan_layout(w, h, pct).window {
+        WindowMode::Reduced => pct.clamp(10, 100),
+        WindowMode::Full => 100,
+    }
+}
+
+/// Smallest terminal (or tmux client) size that keeps the reduced
+/// window; used to write the same rule into the tmux status-bar binding.
 pub fn min_terminal_for(pct: u8) -> (u16, u16) {
     let need = |min: u16| {
         (1..=2000u16)
@@ -845,15 +912,15 @@ pub fn min_terminal_for(pct: u8) -> (u16, u16) {
     (need(min_window_width()), need(MIN_WINDOW_HEIGHT))
 }
 
-/// The part of the terminal `tu` draws in: all of it at 100 %, else a
-/// centred box of that percentage. Re-evaluated every frame, so
-/// resizing the terminal switches between the two.
-pub fn window_area(full: Rect, pct: u8) -> Rect {
-    let pct = effective_pct(full.width, full.height, pct);
-    if pct >= 100 {
-        return full;
+/// The rectangle `tu` draws in for a layout: the whole terminal, or a
+/// centred box of `pct`.
+pub fn window_rect(full: Rect, layout: ScreenPlan, pct: u8) -> Rect {
+    match layout.window {
+        WindowMode::Full => full,
+        WindowMode::Reduced => {
+            centered_rect(scaled(full.width, pct), scaled(full.height, pct), full)
+        }
     }
-    centered_rect(scaled(full.width, pct), scaled(full.height, pct), full)
 }
 
 fn centered_rect(width: u16, height: u16, area: Rect) -> Rect {
@@ -865,37 +932,78 @@ fn centered_rect(width: u16, height: u16, area: Rect) -> Rect {
 }
 
 #[cfg(test)]
-mod tier_tests {
+mod layout_tests {
     use super::*;
 
-    #[test]
-    fn window_area_scales_or_goes_full() {
-        let full = Rect::new(0, 0, 200, 50);
-        assert_eq!(window_area(full, 100), full);
-        let w = window_area(full, 60);
-        assert_eq!((w.width, w.height), (120, 30));
-        assert_eq!((w.x, w.y), (40, 10));
-        // Too narrow for word-form buttons at 60 %: whole terminal.
-        let narrow = Rect::new(0, 0, 90, 40);
-        assert_eq!(window_area(narrow, 60), narrow);
-        // Too short for four list rows at 60 %: whole terminal.
-        let short = Rect::new(0, 0, 200, 20);
-        assert_eq!(window_area(short, 60), short);
+    /// What a terminal of `w` x `h` shows at the default size.
+    fn shown(w: u16, h: u16) -> (WindowMode, LabelTier) {
+        let l = plan_layout(w, h, DEFAULT_WINDOW_PCT);
+        let win_w = match l.window {
+            WindowMode::Reduced => scaled(w, DEFAULT_WINDOW_PCT),
+            WindowMode::Full => w,
+        };
+        (l.window, label_tier(win_w - WINDOW_CHROME_W, l.label_cap))
     }
 
     #[test]
-    fn effective_pct_threshold_matches_min_terminal() {
+    fn stage_table_at_default_size() {
+        use LabelTier::*;
+        use WindowMode::{Full as WFull, Reduced};
+        assert_eq!(shown(200, 50), (Reduced, Full));
+        assert_eq!(shown(129, 30), (Reduced, Full));
+        assert_eq!(shown(128, 30), (Reduced, Word));
+        assert_eq!(shown(99, 22), (Reduced, Word));
+        assert_eq!(shown(98, 30), (WFull, Word), "no jump back to full labels");
+        assert_eq!(shown(80, 24), (WFull, Word));
+        assert_eq!(shown(60, 20), (WFull, Word));
+        assert_eq!(shown(59, 20), (WFull, KeyBox));
+        assert_eq!(shown(36, 16), (WFull, KeyBox));
+        assert_eq!(shown(35, 16), (WFull, KeyOnly));
+        // Wide but short: full window, and the width allows full labels.
+        assert_eq!(shown(200, 21), (WFull, Full));
+    }
+
+    #[test]
+    fn labels_never_grow_as_the_terminal_shrinks() {
+        let mut prev = LabelTier::Full;
+        for w in (30..=220).rev() {
+            let (_, tier) = shown(w, 30);
+            assert!(tier >= prev, "{w} cols: {tier:?} after {prev:?}");
+            prev = tier;
+        }
+    }
+
+    #[test]
+    fn explicit_full_screen_keeps_full_labels() {
+        let l = plan_layout(80, 24, 100);
+        assert_eq!(
+            l,
+            ScreenPlan {
+                window: WindowMode::Full,
+                label_cap: LabelTier::Full
+            }
+        );
+        assert_eq!(label_tier(76, l.label_cap), LabelTier::Full);
+    }
+
+    #[test]
+    fn window_rect_follows_the_mode() {
+        let full = Rect::new(0, 0, 200, 50);
+        let r = window_rect(full, plan_layout(200, 50, 60), 60);
+        assert_eq!((r.x, r.y, r.width, r.height), (40, 10, 120, 30));
+        let small = Rect::new(0, 0, 90, 40);
+        assert_eq!(window_rect(small, plan_layout(90, 40, 60), 60), small);
+    }
+
+    #[test]
+    fn popup_threshold_matches_min_terminal() {
         assert_eq!(min_window_width(), 60);
         let (w, h) = min_terminal_for(60);
         assert_eq!((w, h), (99, 22));
-        assert_eq!(effective_pct(w, h, 60), 60);
-        assert_eq!(effective_pct(w - 1, h, 60), 100);
-        assert_eq!(effective_pct(w, h - 1, 60), 100);
-        assert_eq!(effective_pct(80, 24, 60), 100, "VS Code-sized terminal");
-        assert_eq!(effective_pct(300, 80, 100), 100);
-        // The reduced window keeps the word tier, by construction.
-        let ww = ((w as u32 * 60).div_ceil(100) as u16).saturating_sub(4);
-        assert_ne!(button_tier(ww), ButtonTier::KeyBoxed);
+        assert_eq!(popup_pct(w, h, 60), 60);
+        assert_eq!(popup_pct(w - 1, h, 60), 100);
+        assert_eq!(popup_pct(w, h - 1, 60), 100);
+        assert_eq!(popup_pct(80, 24, 60), 100, "editor-panel-sized client");
     }
 
     #[test]
@@ -920,19 +1028,22 @@ mod tier_tests {
     }
 
     #[test]
-    fn tier_follows_available_width() {
-        assert_eq!(tier_total(ButtonTier::Full), 74);
-        assert_eq!(tier_total(ButtonTier::Word), 56);
-        assert_eq!(tier_total(ButtonTier::KeyBoxed), 32);
-        assert_eq!(tier_total(ButtonTier::KeyBare), 22);
-        assert_eq!(button_tier(120), ButtonTier::Full);
-        assert_eq!(button_tier(76), ButtonTier::Full, "80-column pane");
-        assert_eq!(button_tier(74), ButtonTier::Full);
-        assert_eq!(button_tier(73), ButtonTier::Word);
-        assert_eq!(button_tier(56), ButtonTier::Word);
-        assert_eq!(button_tier(55), ButtonTier::KeyBoxed);
-        assert_eq!(button_tier(32), ButtonTier::KeyBoxed);
-        assert_eq!(button_tier(31), ButtonTier::KeyBare);
-        assert_eq!(button_tier(10), ButtonTier::KeyBare);
+    fn label_tier_follows_width_and_cap() {
+        use LabelTier::*;
+        assert_eq!(label_row_width(Full), 74);
+        assert_eq!(label_row_width(Word), 56);
+        assert_eq!(label_row_width(KeyBox), 32);
+        assert_eq!(label_row_width(KeyOnly), 22);
+        assert_eq!(label_tier(120, Full), Full);
+        assert_eq!(label_tier(74, Full), Full);
+        assert_eq!(label_tier(73, Full), Word);
+        assert_eq!(label_tier(56, Full), Word);
+        assert_eq!(label_tier(55, Full), KeyBox);
+        assert_eq!(label_tier(32, Full), KeyBox);
+        assert_eq!(label_tier(31, Full), KeyOnly);
+        assert_eq!(label_tier(10, Full), KeyOnly);
+        // The cap only ever makes labels plainer.
+        assert_eq!(label_tier(120, Word), Word);
+        assert_eq!(label_tier(40, Word), KeyBox);
     }
 }
