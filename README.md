@@ -369,6 +369,16 @@ always in yellow:
 
 An 80-column pane (76 usable cells) gets the full form.
 
+**Small terminals use all of it.** The reduced (60 %) window is only
+used when it still fits the word-form buttons and four list rows —
+a terminal of at least 99 × 22. Anything smaller (an editor's
+terminal panel, an 80 × 24 window) gets the whole screen, and the
+row then steps down through the forms above as usual. The same rule
+applies outside tmux (re-checked on every resize), when `tu` is
+launched from a pane (checked against the tmux client before the
+popup opens), and to the status-bar button (written into the managed
+tmux file as a `#{client_width}` / `#{client_height}` condition).
+
 ### Keyboard & mouse reference
 
 | Key                         | Action                                   |
@@ -479,7 +489,7 @@ bind-key -n F12 display-popup -E -B -w 100% -h 100% "tu"
 | `TU_NO_UPDATE_CHECK=1` | never check GitHub for a newer release, never show the note |
 | `--check-update`  | check GitHub right now, print the result, exit (0 up to date, 10 update available, 11 unreachable) |
 | `--update`        | check now and, if newer, upgrade in place with the detected install method (0 done or up to date, 1 upgrade failed, 11 unreachable) |
-| `--size PCT` / `TU_SIZE` | window size, 10-100 (default 60): the tmux popup size, or a centred window outside tmux. 100 = full screen |
+| `--size PCT` / `TU_SIZE` | window size, 10-100 (default 60): the tmux popup size, or a centred window outside tmux. 100 = full screen. On a small terminal tu uses the whole of it anyway (see *The button row*) |
 | `--version`       | print the version and exit                              |
 | `--help`          | list every flag                                         |
 

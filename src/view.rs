@@ -7,6 +7,7 @@ use ratatui::style::Color;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use ratatui::Frame;
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::state::{
     AppState, ButtonId, ConfFocus, DeleteFocus, Focus, HitTarget, Screen, StatusKind, BUTTON_ORDER,
@@ -115,17 +116,34 @@ fn close_chip(state: &AppState) -> Line<'static> {
     Line::from(Span::styled(CLOSE_CHIP, theme::close_chip_style(visual)))
 }
 
-/// Pad `name` to exactly `width` cells, cutting with `…` when longer.
+/// Pad `name` to exactly `width` terminal cells, cutting with `…`
+/// when longer. Counts display cells, not chars: a Hangul syllable is
+/// two cells, so padding by `chars()` would push the row past the
+/// list border.
 fn fit_name(name: &str, width: usize) -> String {
-    let n = name.chars().count();
-    if n <= width {
-        return format!("{name:<width$}");
+    let w = UnicodeWidthStr::width(name);
+    if w <= width {
+        return format!("{name}{}", " ".repeat(width - w));
     }
-    if width <= 1 {
-        return "…".repeat(width);
+    if width == 0 {
+        return String::new();
     }
-    let head: String = name.chars().take(width - 1).collect();
-    format!("{head}…")
+    // Keep as many leading chars as fit in width-1 cells, then "…",
+    // then pad (a wide char may leave one cell over).
+    let mut out = String::new();
+    let mut used = 0;
+    for c in name.chars() {
+        let cw = UnicodeWidthChar::width(c).unwrap_or(0);
+        if used + cw > width - 1 {
+            break;
+        }
+        out.push(c);
+        used += cw;
+    }
+    out.push('…');
+    used += 1;
+    out.push_str(&" ".repeat(width - used));
+    out
 }
 
 // -------------------------------------------------------- section
@@ -175,7 +193,7 @@ fn render_session_list(f: &mut Frame, area: Rect, state: &mut AppState) {
     let longest = state
         .sessions
         .iter()
-        .map(|s| s.name.chars().count())
+        .map(|s| UnicodeWidthStr::width(s.name.as_str()))
         .max()
         .unwrap_or(8);
     let max_name = longest.max(8).min(avail.max(8));
@@ -782,17 +800,60 @@ fn modal_button_visual(state: &AppState, target: HitTarget, focused: bool) -> Bu
     }
 }
 
+/// Default window size, percent of the terminal / tmux client.
+pub const DEFAULT_WINDOW_PCT: u8 = 60;
+
+/// Smallest window height worth shrinking to: border, label, a list
+/// showing four sessions, spacer, button row, status row.
+pub const MIN_WINDOW_HEIGHT: u16 = 14;
+
+/// Smallest window width worth shrinking to: the button row still in
+/// its word form (`Attach`, `New`, …) plus the outer border and margin.
+/// Below this a reduced window would drop to bare keys, so it is
+/// better to use the whole terminal instead.
+pub fn min_window_width() -> u16 {
+    tier_total(ButtonTier::Word) + 4
+}
+
+fn scaled(len: u16, pct: u8) -> u16 {
+    ((len as u32 * pct as u32).div_ceil(100)) as u16
+}
+
+/// The size actually used: `pct` when the reduced window keeps the
+/// word-form buttons and four list rows, otherwise 100. Inside 100 %
+/// the button row then degrades through its own tiers as usual.
+pub fn effective_pct(full_w: u16, full_h: u16, pct: u8) -> u8 {
+    let pct = pct.clamp(10, 100);
+    if pct == 100 {
+        return 100;
+    }
+    if scaled(full_w, pct) < min_window_width() || scaled(full_h, pct) < MIN_WINDOW_HEIGHT {
+        100
+    } else {
+        pct
+    }
+}
+
+/// Smallest terminal (or tmux client) size at which `pct` is kept;
+/// used to write the same rule into the tmux status-bar binding.
+pub fn min_terminal_for(pct: u8) -> (u16, u16) {
+    let need = |min: u16| {
+        (1..=2000u16)
+            .find(|&n| scaled(n, pct) >= min)
+            .unwrap_or(2000)
+    };
+    (need(min_window_width()), need(MIN_WINDOW_HEIGHT))
+}
+
 /// The part of the terminal `tu` draws in: all of it at 100 %, else a
-/// centred box of that percentage, never smaller than a usable minimum
-/// (and never larger than the terminal).
+/// centred box of that percentage. Re-evaluated every frame, so
+/// resizing the terminal switches between the two.
 pub fn window_area(full: Rect, pct: u8) -> Rect {
+    let pct = effective_pct(full.width, full.height, pct);
     if pct >= 100 {
         return full;
     }
-    let pct = pct.max(10) as u32;
-    let w = ((full.width as u32 * pct).div_ceil(100)) as u16;
-    let h = ((full.height as u32 * pct).div_ceil(100)) as u16;
-    centered_rect(w.max(40), h.max(12), full)
+    centered_rect(scaled(full.width, pct), scaled(full.height, pct), full)
 }
 
 fn centered_rect(width: u16, height: u16, area: Rect) -> Rect {
@@ -808,17 +869,33 @@ mod tier_tests {
     use super::*;
 
     #[test]
-    fn window_area_scales_and_clamps() {
+    fn window_area_scales_or_goes_full() {
         let full = Rect::new(0, 0, 200, 50);
         assert_eq!(window_area(full, 100), full);
         let w = window_area(full, 60);
         assert_eq!((w.width, w.height), (120, 30));
         assert_eq!((w.x, w.y), (40, 10));
-        let small = Rect::new(0, 0, 50, 15);
-        let w = window_area(small, 60);
-        assert_eq!((w.width, w.height), (40, 12));
-        let tiny = Rect::new(0, 0, 30, 8);
-        assert_eq!(window_area(tiny, 60), tiny);
+        // Too narrow for word-form buttons at 60 %: whole terminal.
+        let narrow = Rect::new(0, 0, 90, 40);
+        assert_eq!(window_area(narrow, 60), narrow);
+        // Too short for four list rows at 60 %: whole terminal.
+        let short = Rect::new(0, 0, 200, 20);
+        assert_eq!(window_area(short, 60), short);
+    }
+
+    #[test]
+    fn effective_pct_threshold_matches_min_terminal() {
+        assert_eq!(min_window_width(), 60);
+        let (w, h) = min_terminal_for(60);
+        assert_eq!((w, h), (99, 22));
+        assert_eq!(effective_pct(w, h, 60), 60);
+        assert_eq!(effective_pct(w - 1, h, 60), 100);
+        assert_eq!(effective_pct(w, h - 1, 60), 100);
+        assert_eq!(effective_pct(80, 24, 60), 100, "VS Code-sized terminal");
+        assert_eq!(effective_pct(300, 80, 100), 100);
+        // The reduced window keeps the word tier, by construction.
+        let ww = ((w as u32 * 60).div_ceil(100) as u16).saturating_sub(4);
+        assert_ne!(button_tier(ww), ButtonTier::KeyBoxed);
     }
 
     #[test]
@@ -826,8 +903,20 @@ mod tier_tests {
         assert_eq!(fit_name("work", 8), "work    ");
         assert_eq!(fit_name("exactly8", 8), "exactly8");
         assert_eq!(fit_name("a-rather-long-session-name", 10), "a-rather-…");
-        assert_eq!(fit_name("한글세션이름입니다", 5), "한글세션…");
+        // Display cells, not chars: Hangul is two cells each.
+        assert_eq!(fit_name("한글", 6), "한글  ");
+        assert_eq!(fit_name("한글세션이름입니다", 5), "한글…");
+        // Width 6: a third syllable would need cells 5-6, leaving no
+        // room for "…", so one pad cell remains.
+        assert_eq!(fit_name("한글세션이름입니다", 6), "한글… ");
         assert_eq!(fit_name("abc", 1), "…");
+        for (name, w) in [("한글세션이름", 7), ("mixed한글", 6), ("plain", 3)] {
+            assert_eq!(
+                UnicodeWidthStr::width(fit_name(name, w).as_str()),
+                w,
+                "{name}"
+            );
+        }
     }
 
     #[test]

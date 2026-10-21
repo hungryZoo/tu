@@ -25,11 +25,22 @@ impl TmuxResult {
     }
 }
 
+/// Full argv for a tmux call. `-u` makes the client treat output as
+/// UTF-8 regardless of the locale. Without it, under `LANG=C` / an
+/// unset locale (common on servers and Raspberry Pi OS), tmux rewrites
+/// every tab and non-ASCII byte in `-F` output to `_`, so the session
+/// list parses as empty and Korean names come back as `____`.
+fn tmux_argv(args: &[&str]) -> Vec<String> {
+    std::iter::once("tmux")
+        .chain(std::iter::once("-u"))
+        .chain(args.iter().copied())
+        .map(str::to_string)
+        .collect()
+}
+
 fn run(args: &[&str]) -> TmuxResult {
-    let argv: Vec<String> = std::iter::once("tmux".to_string())
-        .chain(args.iter().map(|a| a.to_string()))
-        .collect();
-    match Command::new("tmux").args(args).output() {
+    let argv = tmux_argv(args);
+    match Command::new(&argv[0]).args(&argv[1..]).output() {
         Ok(o) => TmuxResult {
             argv,
             returncode: o.status.code().unwrap_or(-1),
@@ -225,6 +236,16 @@ pub fn set_option(name: &str, value: &str) -> TmuxResult {
     run(&["set-option", "-g", name, value])
 }
 
+/// Size of the client attached to the current pane, `(cols, rows)`.
+pub fn client_size() -> Option<(u16, u16)> {
+    let r = run(&["display-message", "-p", "#{client_width} #{client_height}"]);
+    if !r.ok() {
+        return None;
+    }
+    let mut it = r.stdout.split_whitespace().map(|v| v.parse::<u16>().ok());
+    Some((it.next()??, it.next()??))
+}
+
 /// ``tmux source-file <path>`` against the running server.
 pub fn source_file(path: &Path) -> TmuxResult {
     let p = path.to_string_lossy();
@@ -299,6 +320,14 @@ mod tests {
     #[test]
     fn attach_argv_omits_target_when_none() {
         assert_eq!(attach_argv(None), vec!["tmux", "attach-session"]);
+    }
+
+    #[test]
+    fn every_tmux_call_forces_utf8_output() {
+        assert_eq!(
+            tmux_argv(&["list-sessions", "-F", "x"]),
+            vec!["tmux", "-u", "list-sessions", "-F", "x"]
+        );
     }
 
     #[test]

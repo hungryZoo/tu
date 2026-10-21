@@ -19,7 +19,7 @@ use std::process::{Command, ExitCode};
 
 use clap::Parser;
 
-use tmux_tu::{app, tmux, update};
+use tmux_tu::{app, tmux, update, view};
 
 #[derive(Parser)]
 #[command(
@@ -56,12 +56,10 @@ struct Cli {
     size: Option<u8>,
 }
 
-const DEFAULT_SIZE: u8 = 60;
-
 fn window_size(cli: &Cli) -> u8 {
     cli.size
         .or_else(|| std::env::var("TU_SIZE").ok().and_then(|v| v.parse().ok()))
-        .unwrap_or(DEFAULT_SIZE)
+        .unwrap_or(view::DEFAULT_WINDOW_PCT)
         .clamp(10, 100)
 }
 
@@ -116,7 +114,12 @@ fn main() -> ExitCode {
     let size = window_size(&cli);
 
     if !cli.no_popup && !env_no_popup() && tmux::is_inside_pane() && tmux::supports_popup() {
-        let r = tmux::open_self_in_popup(size);
+        // A popup's size is fixed when it opens, so decide now: on a
+        // small client (e.g. an editor's terminal panel) use all of it.
+        let popup_pct = tmux::client_size()
+            .map(|(w, h)| view::effective_pct(w, h, size))
+            .unwrap_or(size);
+        let r = tmux::open_self_in_popup(popup_pct);
         if r.ok() {
             return ExitCode::SUCCESS;
         }

@@ -831,6 +831,7 @@ dependencies = [
  "ratatui",
  "regex",
  "tempfile",
+ "unicode-width 0.2.0",
 ]
 
 [[package]]

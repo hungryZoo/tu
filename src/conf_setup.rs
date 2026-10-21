@@ -24,7 +24,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 /// Bump when the template below changes in a way users should get.
-pub const MANAGED_VERSION: u32 = 1;
+pub const MANAGED_VERSION: u32 = 2;
 
 pub const LEGACY_HEADER: &str = "# Added by tu (https://github.com/hungryZoo/tu)";
 pub const LEGACY_FOOTER: &str = "# End of tu";
@@ -95,14 +95,23 @@ pub fn button_fragment() -> String {
     format!("#[{BUTTON_RANGE_MARKER}]#[fg=#1e1e2e,bg=#cba6f7,bold] tu #[norange]#[default]")
 }
 
-/// Status-bar click: a 60 % popup over the live panes (the same
-/// default `tu` uses when launched from a pane).
-pub fn popup_command(borderless: bool) -> String {
-    if borderless {
-        "display-popup -E -B -w 60% -h 60% tu".into()
-    } else {
-        "display-popup -E -w 60% -h 60% tu".into()
-    }
+/// `display-popup` running `tu` at `pct` % of the client.
+pub fn popup_command(borderless: bool, pct: u8) -> String {
+    let b = if borderless { " -B" } else { "" };
+    format!("display-popup -E{b} -w {pct}% -h {pct}% tu")
+}
+
+/// Status-bar click: the same rule `tu` applies when launched from a
+/// pane — the default-size popup on a big enough client, the whole
+/// client otherwise. Thresholds come from `view`, so both paths agree.
+pub fn status_click_command(borderless: bool) -> String {
+    let pct = crate::view::DEFAULT_WINDOW_PCT;
+    let (w, h) = crate::view::min_terminal_for(pct);
+    format!(
+        "if -F '#{{&&:#{{e|>=:#{{client_width}},{w}}},#{{e|>=:#{{client_height}},{h}}}}}' '{}' '{}'",
+        popup_command(borderless, pct),
+        popup_command(borderless, 100)
+    )
 }
 
 /// Full contents of the managed file for this tmux.
@@ -123,8 +132,8 @@ pub fn managed_text(popup: Option<PopupSupport>) -> String {
             button_fragment()
         ));
         s.push_str(&format!(
-            "bind -T root MouseDown1Status if -F '#{{==:#{{mouse_status_range}},tu}}' '{}' 'select-window -t ='\n",
-            popup_command(p.borderless)
+            "bind -T root MouseDown1Status if -F '#{{==:#{{mouse_status_range}},tu}}' \"{}\" 'select-window -t ='\n",
+            status_click_command(p.borderless)
         ));
     }
     s
@@ -313,6 +322,9 @@ mod tests {
         assert!(t.contains("set -g mouse on"));
         assert!(t.contains("if -F '#{m:*range=user|tu*,#{status-right}}' '' 'set -ag status-right"));
         assert!(t.contains("display-popup -E -B -w 60% -h 60% tu"));
+        assert!(t.contains("display-popup -E -B -w 100% -h 100% tu"));
+        assert!(t.contains("#{e|>=:#{client_width},99}"));
+        assert!(t.contains("#{e|>=:#{client_height},22}"));
         let no_popup = managed_text(None);
         assert!(!no_popup.contains("status-right"));
         assert!(!no_popup.contains("bind -T root"));

@@ -76,6 +76,9 @@ ratatui = { version = "0.29", default-features = false, features = ["crossterm"]
 crossterm = "0.28"
 
 regex = "1"
+# Terminal cell width of a string (Hangul / CJK take two cells). Same
+# version ratatui already depends on, so no extra code is pulled in.
+unicode-width = "0.2"
 clap = { version = "4", features = ["derive"] }
 dirs = "5"
 
