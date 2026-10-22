@@ -164,7 +164,7 @@ Useful knobs:
 
 | Variable / flag        | Effect                                        |
 | ---------------------- | --------------------------------------------- |
-| `TU_VERSION=1.1.5`     | pin a release instead of *latest*             |
+| `TU_VERSION=1.1.6`     | pin a release instead of *latest*             |
 | `TU_BIN_DIR=/usr/local/bin` | install somewhere other than `~/.local/bin` |
 | `sh -s -- --help`      | list every option                             |
 
