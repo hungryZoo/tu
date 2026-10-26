@@ -316,7 +316,13 @@ pub fn classify_install(
             }
         }
     }
-    if s.starts_with("/usr/bin/") || s.starts_with("/usr/local/bin/") {
+    // install.sh run as root picks /usr/local/bin; packages never do.
+    if s.starts_with("/usr/local/bin/") {
+        return InstallMethod::Script {
+            bin_dir: PathBuf::from("/usr/local/bin"),
+        };
+    }
+    if s.starts_with("/usr/bin/") {
         if let Some((deb, rpm)) = package_arch(machine) {
             if has_dpkg {
                 return InstallMethod::Deb { arch: deb };
@@ -338,7 +344,11 @@ fn termux_prefix() -> Option<PathBuf> {
 }
 
 pub fn detect_install_method() -> InstallMethod {
-    let exe = env::current_exe().unwrap_or_default();
+    // Resolve symlinks: Homebrew links /usr/local/bin/tu (Intel macOS)
+    // into its Cellar, and the link alone would look like install.sh's.
+    let exe = env::current_exe()
+        .map(|p| fs::canonicalize(&p).unwrap_or(p))
+        .unwrap_or_default();
     let home = dirs::home_dir();
     let machine = Command::new("uname")
         .arg("-m")
@@ -389,7 +399,7 @@ impl InstallMethod {
             InstallMethod::Brew => "brew upgrade tu".into(),
             InstallMethod::Cargo => "cargo install tmux-tu".into(),
             InstallMethod::Script { bin_dir } => format!(
-                "curl -fsSL {INSTALL_SH} | sh -s -- --bin-dir '{}'",
+                "curl -fsSL {INSTALL_SH} | sh -s -- --no-new-shell --bin-dir '{}'",
                 bin_dir.display().to_string().replace('\'', "'\\''")
             ),
             InstallMethod::Deb { arch } => format!(
@@ -564,6 +574,13 @@ mod tests {
             InstallMethod::Rpm { arch: "x86_64" }
         );
         assert_eq!(c("/usr/bin/tu", false, false), InstallMethod::Unknown);
+        // install.sh as root; dpkg present must not turn it into a deb.
+        assert_eq!(
+            c("/usr/local/bin/tu", true, false),
+            InstallMethod::Script {
+                bin_dir: PathBuf::from("/usr/local/bin")
+            }
+        );
         assert_eq!(
             classify_install(
                 Path::new("/usr/bin/tu"),
@@ -608,7 +625,7 @@ mod tests {
         }
         .upgrade_command()
         .unwrap();
-        assert!(script.starts_with("curl -fsSL https://raw.githubusercontent.com/hungryZoo/tu/main/install.sh | sh -s -- --bin-dir '/Users/me/.local/bin'"));
+        assert!(script.starts_with("curl -fsSL https://raw.githubusercontent.com/hungryZoo/tu/main/install.sh | sh -s -- --no-new-shell --bin-dir '/Users/me/.local/bin'"));
         let deb = InstallMethod::Deb { arch: "arm64" }
             .upgrade_command()
             .unwrap();
