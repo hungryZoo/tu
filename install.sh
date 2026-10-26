@@ -8,7 +8,7 @@
 # line printed is the one to paste for the current terminal.
 #
 # Environment:
-#   TU_VERSION=1.1.6       pin a release (default: latest on GitHub)
+#   TU_VERSION=1.1.7       pin a release (default: latest on GitHub)
 #   TU_INSTALL_DIR=...     install directory (default: ~/.local/bin)
 #   TU_NO_MODIFY_PATH=1    never touch shell startup files
 set -eu

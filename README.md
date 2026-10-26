@@ -195,7 +195,7 @@ Useful knobs:
 
 | Variable / flag        | Effect                                        |
 | ---------------------- | --------------------------------------------- |
-| `TU_VERSION=1.1.6`     | pin a release instead of *latest*             |
+| `TU_VERSION=1.1.7`     | pin a release instead of *latest*             |
 | `TU_BIN_DIR=/usr/local/bin` | install somewhere other than the default |
 | `--no-modify-path` / `TU_NO_MODIFY_PATH=1` | never touch shell startup files; just print the line to add |
 | `sh -s -- --help`      | list every option                             |
