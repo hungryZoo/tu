@@ -1,32 +1,22 @@
 #!/bin/sh
-# Install tu without sudo, put it on PATH, and make `tu` work right away.
+# Install tu without sudo into ~/.local/bin and put it on PATH.
 #
 #   curl -fsSL https://raw.githubusercontent.com/hungryZoo/tu/main/install.sh | sh
 #
-# Where it goes (first match):
-#   1. Termux: $PREFIX/bin                       (on PATH already)
-#   2. ~/.local/bin or ~/bin, if already on PATH (works immediately)
-#   3. /usr/local/bin when running as root       (on PATH already)
-#   4. ~/.local/bin, added to PATH in your shell's startup file (created
-#      if missing), then a fresh shell is started so `tu` works at once
-#
-# A script run as `curl | sh` is a child of your shell and cannot change
-# that shell's PATH; starting a new shell is the closest it can get.
+# If ~/.local/bin isn't on PATH, one line is added to your shell's
+# startup file (created if missing) so new terminals find tu. The last
+# line printed is the one to paste for the current terminal.
 #
 # Environment:
 #   TU_VERSION=1.1.6       pin a release (default: latest on GitHub)
-#   TU_INSTALL_DIR=...     install directory
+#   TU_INSTALL_DIR=...     install directory (default: ~/.local/bin)
 #   TU_NO_MODIFY_PATH=1    never touch shell startup files
-#   TU_NO_NEW_SHELL=1      don't start a new shell at the end
 set -eu
 
 REPO="hungryZoo/tu"
 VERSION="${TU_VERSION:-}"
 MODIFY_PATH=1
 case "${TU_NO_MODIFY_PATH:-}" in ""|0) ;; *) MODIFY_PATH=0 ;; esac
-NEW_SHELL=1
-case "${TU_NO_NEW_SHELL:-}" in ""|0) ;; *) NEW_SHELL=0 ;; esac
-PATH_CHANGED=0
 _TMP_DIR=""
 PATH_MARK="# Added by tu installer (https://github.com/hungryZoo/tu)"
 
@@ -36,8 +26,7 @@ is_termux() {
     return 1
 }
 
-# Empty means "choose" (see choose_bin_dir); --bin-dir / env override.
-BIN_DIR="${TU_INSTALL_DIR:-${TU_BIN_DIR:-}}"
+BIN_DIR="${TU_INSTALL_DIR:-${TU_BIN_DIR:-$HOME/.local/bin}}"
 
 cleanup() {
     if [ -n "$_TMP_DIR" ] && [ -d "$_TMP_DIR" ]; then
@@ -63,17 +52,14 @@ Usage:
   install.sh [OPTIONS]
 
 Options:
-  --bin-dir DIR       Install directory (default: a writable directory
-                      already on PATH, else ~/.local/bin)
+  --bin-dir DIR       Install directory (default: ~/.local/bin)
   --version VER       Release version without leading v (default: latest)
   --no-modify-path    Don't add the install directory to PATH in your
                       shell startup file
-  --no-new-shell      Don't start a new shell at the end
   -h, --help          Show this help
 
 Environment:
-  TU_INSTALL_DIR, TU_BIN_DIR, TU_VERSION, TU_NO_MODIFY_PATH=1,
-  TU_NO_NEW_SHELL=1
+  TU_INSTALL_DIR, TU_BIN_DIR, TU_VERSION, TU_NO_MODIFY_PATH=1
 EOF
 }
 
@@ -161,10 +147,6 @@ parse_args() {
                 MODIFY_PATH=0
                 shift
                 ;;
-            --no-new-shell)
-                NEW_SHELL=0
-                shift
-                ;;
             -h|--help)
                 usage
                 exit 0
@@ -209,27 +191,6 @@ pretty() {
         "$HOME"/*) echo "~/${1#"$HOME"/}" ;;
         *) echo "$1" ;;
     esac
-}
-
-# Install directory when none was given: a writable directory that is
-# already on PATH wins, because then `tu` works in this very terminal
-# and no startup file needs touching.
-choose_bin_dir() {
-    if is_termux && [ -n "${PREFIX:-}" ]; then
-        echo "$PREFIX/bin"
-        return
-    fi
-    for d in "$HOME/.local/bin" "$HOME/bin"; do
-        on_path "$d" || continue
-        if [ -d "$d" ] && [ -w "$d" ]; then echo "$d"; return; fi
-        # On PATH but not created yet (some distros list it regardless).
-        if [ ! -e "$d" ]; then echo "$d"; return; fi
-    done
-    if [ "$(id -u 2>/dev/null || echo 1)" = 0 ] && on_path /usr/local/bin && [ -w /usr/local/bin ]; then
-        echo /usr/local/bin
-        return
-    fi
-    echo "$HOME/.local/bin"
 }
 
 shell_name() {
@@ -314,8 +275,8 @@ ensure_on_path() {
     if on_path "$BIN_DIR"; then
         return 0
     fi
-    PATH_CHANGED=1
     if [ "$MODIFY_PATH" = 0 ]; then
+        info "PATH: left alone (--no-modify-path); add $(pretty "$BIN_DIR") yourself"
         return 0
     fi
     startup_files | while IFS= read -r f; do
@@ -323,47 +284,19 @@ ensure_on_path() {
     done
 }
 
-print_export_hint() {
-    echo "To use tu in this terminal, run:"
-    case "$(shell_name)" in
-        fish) echo "  set -gx PATH \"$BIN_DIR\" \$PATH" ;;
-        *) echo "  export PATH=\"$BIN_DIR:\$PATH\"" ;;
-    esac
-}
-
-# Make PATH take effect in this terminal: replace the installer with a
-# fresh interactive shell of the user's kind, which reads the startup
-# file just written. Only when a person is at a terminal; otherwise (CI,
-# scripts, --no-new-shell) print the one line to run instead.
-activate_now() {
-    [ "$PATH_CHANGED" = 1 ] || return 0
-    echo
-    if [ "$MODIFY_PATH" = 0 ]; then
-        echo "Note: $(pretty "$BIN_DIR") is not on your PATH (left alone: --no-modify-path)."
-        echo "Add this line to your shell's startup file:"
-        echo "  export PATH=\"$(path_expr "$BIN_DIR"):\$PATH\""
-        return 0
+# The one line to paste so this terminal finds tu now. `curl | sh` runs
+# in a child process and cannot change the calling shell's PATH; new
+# terminals pick it up from the startup file.
+paste_line() {
+    if on_path "$BIN_DIR"; then
+        echo "tu"
+        return
     fi
-    echo "New terminals will find tu. To undo, delete this line and the one after it:"
-    echo "  $PATH_MARK"
-    sh_path="${SHELL:-}"
-    if [ "$NEW_SHELL" = 0 ] || [ -n "${CI:-}" ] || [ -z "$sh_path" ] || [ ! -x "$sh_path" ] \
-        || [ ! -t 1 ] || ! (: </dev/tty) 2>/dev/null; then
-        print_export_hint
-        return 0
-    fi
+    expr="$(path_expr "$BIN_DIR")"
     case "$(shell_name)" in
-        zsh|fish) args="" ;;
-        bash) if [ "$(uname -s)" = Darwin ]; then args="-l"; else args=""; fi ;;
-        *) args="-l" ;;
+        fish) echo "set -gx PATH \"$expr\" \$PATH" ;;
+        *) echo "export PATH=\"$expr:\$PATH\"" ;;
     esac
-    echo
-    info "starting a new $(shell_name) so tu is on PATH right away"
-    echo "    (type 'exit' to return to the shell you ran the installer from)"
-    cleanup
-    trap - EXIT
-    # shellcheck disable=SC2086
-    exec "$sh_path" $args </dev/tty
 }
 
 main() {
@@ -375,8 +308,6 @@ main() {
     if ! command -v tmux >/dev/null 2>&1; then
         echo "warning: tmux not found on PATH — install it before running tu ($(tmux_hint))" >&2
     fi
-
-    [ -n "$BIN_DIR" ] || BIN_DIR="$(choose_bin_dir)"
 
     triple="$(detect_triple)"
     info "platform: $triple"
@@ -407,9 +338,12 @@ main() {
 
     ensure_on_path
 
-    echo
-    echo "tu is installed! Run: tu"
-    activate_now
+    if on_path "$BIN_DIR"; then
+        info "done. Start it with:"
+    else
+        info "done. To use tu in this terminal, run:"
+    fi
+    printf '\n\n\n%s\n\n' "$(paste_line)"
 }
 
 main "$@"

@@ -162,23 +162,15 @@ your shell can find it:
 curl -fsSL https://raw.githubusercontent.com/hungryZoo/tu/main/install.sh | sh
 ```
 
-**Where it goes.** The first that applies:
-
-1. Termux: `$PREFIX/bin` (on PATH already).
-2. `~/.local/bin` or `~/bin`, if your PATH already lists it.
-3. `/usr/local/bin` when run as root.
-4. Otherwise `~/.local/bin`, plus the PATH setup below.
-
-In cases 1–3 no file is touched and `tu` works right away.
-
-**PATH setup (case 4).** The installer adds one guarded line to your
-shell's startup file, chosen from `$SHELL`, and creates the file if
-it doesn't exist:
+**Where it goes.** `~/.local/bin` on every OS (Termux included).
+If that directory isn't on PATH yet, the installer adds one guarded
+line to your shell's startup file, chosen from `$SHELL`, and creates
+the file if it doesn't exist:
 
 | `$SHELL` | File                                                        |
 | -------- | ----------------------------------------------------------- |
 | zsh      | `${ZDOTDIR:-~}/.zshrc`                                      |
-| bash (Linux) | `~/.bashrc`, plus the login file ssh/console logins read (first existing of `~/.bash_profile`, `~/.bash_login`, `~/.profile`, else a new `~/.profile`) unless it already sources `.bashrc` |
+| bash (Linux, Termux) | `~/.bashrc`, plus the login file ssh/console/Termux logins read (first existing of `~/.bash_profile`, `~/.bash_login`, `~/.profile`, else a new `~/.profile`) unless it already sources `.bashrc` |
 | bash (macOS) | `~/.bash_profile`                                       |
 | fish     | `~/.config/fish/conf.d/tu.fish`                              |
 | anything else (sh, dash, ksh, …) | `~/.profile`                         |
@@ -187,13 +179,17 @@ The line is marked `# Added by tu installer`, only adds the
 directory if it isn't on PATH already, and is written once no matter
 how often you re-run the installer. Delete it to undo.
 
-**Working right away.** `curl … | sh` runs in a child process, which
-cannot change your current shell's PATH. So when the installer is run
-from a terminal it ends by starting a fresh shell of your kind
-(`exec $SHELL`), which reads the file just written: type `tu` straight
-away; `exit` returns to the previous shell. Without a terminal (CI,
-scripts) or with `--no-new-shell`, it prints the `export` line to run
-instead.
+**The last line.** New terminals find `tu` on their own. The current
+one can't be changed by the installer (`curl … | sh` runs in a child
+process), so the output ends, after a few blank lines, with the one
+line to paste, e.g.:
+
+```bash
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+(`set -gx PATH …` for fish; just `tu` if the directory was already on
+PATH.)
 
 Useful knobs:
 
@@ -202,7 +198,6 @@ Useful knobs:
 | `TU_VERSION=1.1.6`     | pin a release instead of *latest*             |
 | `TU_BIN_DIR=/usr/local/bin` | install somewhere other than the default |
 | `--no-modify-path` / `TU_NO_MODIFY_PATH=1` | never touch shell startup files; just print the line to add |
-| `--no-new-shell` / `TU_NO_NEW_SHELL=1` | don't start a new shell at the end |
 | `sh -s -- --help`      | list every option                             |
 
 ### Homebrew
@@ -593,7 +588,7 @@ On launch:
 | --- | --- | --- |
 | Homebrew | real path (symlinks resolved) contains `/Cellar/`, `/homebrew/`, `/linuxbrew/` | `brew upgrade tu` |
 | cargo | `~/.cargo/bin/tu` | `cargo install tmux-tu` |
-| install.sh / tarball | any other path under `$HOME`, `/usr/local/bin`, or `$PREFIX/bin` on Termux | `curl … install.sh \| sh -s -- --no-new-shell --bin-dir <that dir>` |
+| install.sh / tarball | any other path under `$HOME`, `/usr/local/bin`, or `$PREFIX/bin` on Termux | `curl … install.sh \| sh -s -- --bin-dir <that dir>` |
 | `.deb` | `/usr/bin/tu` with a dpkg database | download `tu_<arch>.deb`, `sudo dpkg -i` |
 | `.rpm` | `/usr/bin/tu` with an rpm database | `sudo rpm -U …/tu-<arch>.rpm` |
 | unknown | anything else | nothing; the modal shows the releases URL |
@@ -671,15 +666,14 @@ curl -fsSL https://raw.githubusercontent.com/hungryZoo/tu/main/install.sh | sh
 tu
 ```
 
-- The installer puts `tu` in `$PREFIX/bin`, which Termux already has
-  on PATH, so no startup file is created (Termux ships without a
-  `~/.bashrc`).
+- Same as everywhere: `~/.local/bin`. Termux ships without
+  `~/.bashrc` / `~/.profile`; the installer creates them, and the
+  login shell Termux opens reads `~/.profile`.
 - 64-bit Termux (`uname -m` = `aarch64`, or `x86_64` on emulators)
   uses the static `musl` build. There is no 32-bit ARM build for
   Android yet; the installer says so instead of installing a binary
   that can't run.
-- **u** updates in place by re-running the installer into
-  `$PREFIX/bin`.
+- **u** updates in place by re-running the installer.
 
 <p align="right"><a href="#table-of-contents">↑ back to top</a></p>
 

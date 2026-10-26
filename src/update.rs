@@ -399,7 +399,7 @@ impl InstallMethod {
             InstallMethod::Brew => "brew upgrade tu".into(),
             InstallMethod::Cargo => "cargo install tmux-tu".into(),
             InstallMethod::Script { bin_dir } => format!(
-                "curl -fsSL {INSTALL_SH} | sh -s -- --no-new-shell --bin-dir '{}'",
+                "curl -fsSL {INSTALL_SH} | sh -s -- --bin-dir '{}'",
                 bin_dir.display().to_string().replace('\'', "'\\''")
             ),
             InstallMethod::Deb { arch } => format!(
@@ -625,7 +625,7 @@ mod tests {
         }
         .upgrade_command()
         .unwrap();
-        assert!(script.starts_with("curl -fsSL https://raw.githubusercontent.com/hungryZoo/tu/main/install.sh | sh -s -- --no-new-shell --bin-dir '/Users/me/.local/bin'"));
+        assert!(script.starts_with("curl -fsSL https://raw.githubusercontent.com/hungryZoo/tu/main/install.sh | sh -s -- --bin-dir '/Users/me/.local/bin'"));
         let deb = InstallMethod::Deb { arch: "arm64" }
             .upgrade_command()
             .unwrap();
