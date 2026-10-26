@@ -283,6 +283,7 @@ pub fn package_arch(machine: &str) -> Option<(&'static str, &'static str)> {
 pub fn classify_install(
     exe: &Path,
     home: Option<&Path>,
+    termux_prefix: Option<&Path>,
     has_dpkg: bool,
     has_rpm: bool,
     machine: &str,
@@ -290,6 +291,18 @@ pub fn classify_install(
     let s = exe.to_string_lossy();
     if s.contains("/Cellar/") || s.contains("/homebrew/") || s.contains("/linuxbrew/") {
         return InstallMethod::Brew;
+    }
+    // Termux: install.sh puts tu in $PREFIX/bin, outside $HOME. It is
+    // user-writable and has no package-manager owner, so re-running the
+    // installer there is the upgrade.
+    if let Some(prefix) = termux_prefix {
+        if exe.starts_with(prefix.join("bin")) {
+            if let Some(dir) = exe.parent() {
+                return InstallMethod::Script {
+                    bin_dir: dir.to_path_buf(),
+                };
+            }
+        }
     }
     if let Some(home) = home {
         if exe.starts_with(home.join(".cargo").join("bin")) {
@@ -316,6 +329,14 @@ pub fn classify_install(
     InstallMethod::Unknown
 }
 
+/// `$PREFIX` when running under Termux (Android), else `None`.
+fn termux_prefix() -> Option<PathBuf> {
+    let prefix = env::var_os("PREFIX").map(PathBuf::from)?;
+    let termux = env::var_os("TERMUX_VERSION").is_some()
+        || prefix.to_string_lossy().contains("/com.termux/");
+    termux.then_some(prefix)
+}
+
 pub fn detect_install_method() -> InstallMethod {
     let exe = env::current_exe().unwrap_or_default();
     let home = dirs::home_dir();
@@ -328,6 +349,7 @@ pub fn detect_install_method() -> InstallMethod {
     classify_install(
         &exe,
         home.as_deref(),
+        termux_prefix().as_deref(),
         Path::new("/var/lib/dpkg/status").exists(),
         Path::new("/var/lib/rpm").exists(),
         &machine,
@@ -497,8 +519,23 @@ mod tests {
     fn install_method_follows_binary_location() {
         let home = Path::new("/Users/me");
         let c = |p: &str, dpkg: bool, rpm: bool| {
-            classify_install(Path::new(p), Some(home), dpkg, rpm, "x86_64")
+            classify_install(Path::new(p), Some(home), None, dpkg, rpm, "x86_64")
         };
+        // Termux: $PREFIX/bin is outside $HOME but install.sh owns it.
+        let prefix = Path::new("/data/data/com.termux/files/usr");
+        assert_eq!(
+            classify_install(
+                Path::new("/data/data/com.termux/files/usr/bin/tu"),
+                Some(Path::new("/data/data/com.termux/files/home")),
+                Some(prefix),
+                false,
+                false,
+                "aarch64"
+            ),
+            InstallMethod::Script {
+                bin_dir: PathBuf::from("/data/data/com.termux/files/usr/bin")
+            }
+        );
         assert_eq!(c("/opt/homebrew/bin/tu", false, false), InstallMethod::Brew);
         assert_eq!(
             c("/usr/local/Cellar/tu/1.1.1/bin/tu", false, false),
@@ -528,16 +565,30 @@ mod tests {
         );
         assert_eq!(c("/usr/bin/tu", false, false), InstallMethod::Unknown);
         assert_eq!(
-            classify_install(Path::new("/usr/bin/tu"), Some(home), true, false, "aarch64"),
+            classify_install(
+                Path::new("/usr/bin/tu"),
+                Some(home),
+                None,
+                true,
+                false,
+                "aarch64"
+            ),
             InstallMethod::Deb { arch: "arm64" }
         );
         assert_eq!(
-            classify_install(Path::new("/usr/bin/tu"), Some(home), false, true, "armv7l"),
+            classify_install(
+                Path::new("/usr/bin/tu"),
+                Some(home),
+                None,
+                false,
+                true,
+                "armv7l"
+            ),
             InstallMethod::Unknown,
             "no armhf rpm is published"
         );
         assert_eq!(
-            classify_install(Path::new("/weird/tu"), None, true, true, "x86_64"),
+            classify_install(Path::new("/weird/tu"), None, None, true, true, "x86_64"),
             InstallMethod::Unknown
         );
     }

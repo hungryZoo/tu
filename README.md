@@ -73,6 +73,7 @@ https://github.com/user-attachments/assets/5b21f9cb-f9f2-415b-bd92-b067b938dbf6
    - [Release targets](#release-targets)
    - [Raspberry Pi cheat sheet](#raspberry-pi-cheat-sheet)
    - [macOS notes](#macos-notes)
+   - [Android (Termux)](#android-termux)
 7. [Development](#7-development)
    - [Repository layout](#repository-layout)
    - [Building releases](#building-releases)
@@ -153,19 +154,40 @@ error in its status line.
 
 ### Quick install (recommended)
 
-macOS & Linux, no sudo. Detects your OS/arch, downloads the
-matching release binary, and installs it to `~/.local/bin`:
+macOS, Linux and Android (Termux), no sudo. Detects your OS/arch,
+downloads the matching release binary, installs it, and makes sure
+your shell can find it:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/hungryZoo/tu/main/install.sh | sh
 ```
+
+**Where it goes, and PATH.** On Termux, tu goes to `$PREFIX/bin`,
+which is already on PATH; nothing else is touched. Everywhere else it
+goes to `~/.local/bin`. If that directory isn't on your PATH yet, the
+installer adds one guarded line to your shell's startup file, chosen
+from `$SHELL`, and creates the file if it doesn't exist:
+
+| `$SHELL` | File                                                        |
+| -------- | ----------------------------------------------------------- |
+| zsh      | `${ZDOTDIR:-~}/.zshrc`                                      |
+| bash     | `~/.bashrc` on Linux (plus `~/.bash_profile` if that exists and doesn't source `.bashrc`); `~/.bash_profile` on macOS |
+| fish     | `~/.config/fish/conf.d/tu.fish`                              |
+| anything else (sh, dash, ksh, …) | `~/.profile`                         |
+
+The line is marked `# Added by tu installer`, only adds the
+directory if it isn't on PATH already, and is written once no matter
+how often you re-run the installer. Delete it to undo. The current
+terminal isn't changed (a script can't do that); the installer prints
+the one `export` to run, or open a new terminal.
 
 Useful knobs:
 
 | Variable / flag        | Effect                                        |
 | ---------------------- | --------------------------------------------- |
 | `TU_VERSION=1.1.6`     | pin a release instead of *latest*             |
-| `TU_BIN_DIR=/usr/local/bin` | install somewhere other than `~/.local/bin` |
+| `TU_BIN_DIR=/usr/local/bin` | install somewhere other than the default |
+| `--no-modify-path` / `TU_NO_MODIFY_PATH=1` | never touch shell startup files; just print the line to add |
 | `sh -s -- --help`      | list every option                             |
 
 ### Homebrew
@@ -556,7 +578,7 @@ On launch:
 | --- | --- | --- |
 | Homebrew | path contains `/Cellar/`, `/homebrew/`, `/linuxbrew/` | `brew upgrade tu` |
 | cargo | `~/.cargo/bin/tu` | `cargo install tmux-tu` |
-| install.sh / tarball | any other path under `$HOME` | `curl … install.sh \| sh -s -- --bin-dir <that dir>` |
+| install.sh / tarball | any other path under `$HOME`, or `$PREFIX/bin` on Termux | `curl … install.sh \| sh -s -- --bin-dir <that dir>` |
 | `.deb` | `/usr/bin/tu` with a dpkg database | download `tu_<arch>.deb`, `sudo dpkg -i` |
 | `.rpm` | `/usr/bin/tu` with an rpm database | `sudo rpm -U …/tu-<arch>.rpm` |
 | unknown | anything else | nothing; the modal shows the releases URL |
@@ -625,6 +647,24 @@ binary; clear it once:
 ```bash
 xattr -d com.apple.quarantine ~/.local/bin/tu
 ```
+
+### Android (Termux)
+
+```bash
+pkg install tmux curl
+curl -fsSL https://raw.githubusercontent.com/hungryZoo/tu/main/install.sh | sh
+tu
+```
+
+- The installer puts `tu` in `$PREFIX/bin`, which Termux already has
+  on PATH, so no startup file is created (Termux ships without a
+  `~/.bashrc`).
+- 64-bit Termux (`uname -m` = `aarch64`, or `x86_64` on emulators)
+  uses the static `musl` build. There is no 32-bit ARM build for
+  Android yet; the installer says so instead of installing a binary
+  that can't run.
+- **u** updates in place by re-running the installer into
+  `$PREFIX/bin`.
 
 <p align="right"><a href="#table-of-contents">↑ back to top</a></p>
 
