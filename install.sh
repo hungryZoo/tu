@@ -343,7 +343,7 @@ main() {
     else
         info "done. To use tu in this terminal, run:"
     fi
-    printf '\n\n\n%s\n\n' "$(paste_line)"
+    printf '\n\n\n%s\n\n\n\n' "$(paste_line)"
 }
 
 main "$@"
